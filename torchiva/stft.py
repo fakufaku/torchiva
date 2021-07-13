@@ -1,7 +1,7 @@
 from typing import Optional, Union
 
 import torch as pt
-from scipy.signal import get_window, istft, stft
+from scipy.signal import get_window
 
 from .base import STFTBase, Window
 from .dtypes import dtype_cpx2f, dtype_f2cpx
