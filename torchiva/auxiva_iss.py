@@ -131,7 +131,9 @@ def spatial_model_update_ip2(Xo: pt.Tensor, weights: pt.Tensor):
             bmm(pt.conj(eigvec[..., None, :, k]), bmm(V[k], eigvec[..., :, None, k]))
         )
         eigvec[..., :, k : k + 1] = divide(
-            eigvec[..., :, k : k + 1], pt.sqrt(pt.clamp(scale, min=1e-7)), eps=1e-7,
+            eigvec[..., :, k : k + 1],
+            pt.sqrt(pt.clamp(scale, min=1e-7)),
+            eps=1e-7,
         )
 
     X = bmm(hermite(eigvec), Xo.transpose(-3, -2)).transpose(-3, -2)

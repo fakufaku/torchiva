@@ -127,7 +127,7 @@ def _compute_measures(
 
     # Get the SIR
     Rsr = pt.matmul(reference_signals.transpose(-2, -1), e_res)
-    b, _ = pt.solve(Rsr, Rss)  # caution: order of lhs and rhs is reverse in torch
+    b = pt.linalg.solve(Rss, Rsr)  # caution: order of lhs and rhs is reverse in torch
 
     e_interf = pt.matmul(reference_signals, b)
     e_artif = e_res - e_interf
