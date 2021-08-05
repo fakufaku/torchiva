@@ -80,6 +80,44 @@ def iss_block_update_type_2(
     return v
 
 
+def iss_updates(X, X_bar, W, weights):
+    n_chan, n_freq, n_frames = X.shape[-3:]
+    n_taps = X_bar.shape[-2]
+
+    # source separation part
+    for src in range(n_chan):
+        v = iss_block_update_type_1(src, X, weights)
+        X = X - torch.einsum("...cf,...fn->...cfn", v, X[..., src, :, :])
+        W = W - torch.einsum("...cf,...fd->...cfd", v, W[..., src, :, :])
+
+    # dereverberation part
+    for src in range(n_chan):
+        for tap in range(n_taps):
+            v = iss_block_update_type_2(src, tap, X, X_bar, weights)
+            X = X - torch.einsum("...cf,...fn->...cfn", v, X_bar[..., src, :, tap, :])
+
+    return X, W
+
+
+def projection_back(Y, W, eps=1e-6):
+    # projection back (not efficient yet)
+    batch_shape = Y.shape[:-3]
+    n_chan, n_freq, n_frames = Y.shape[-3:]
+
+    # projection back (not efficient yet)
+    e1_shape = [1] * (len(batch_shape) + 1) + [n_chan, 1]
+    e1 = W.new_zeros(e1_shape)
+    e1[..., 0, 0] = 1.0
+    e1 = torch.eye(n_chan, 1)[None, ...].type_as(W)
+    WT = W.transpose(-3, -2)
+    WT = WT.transpose(-2, -1)
+    a = torch.linalg.solve(WT, e1)
+    a = a.transpose(-3, -2)
+    Y = Y * a
+
+    return Y, a
+
+
 class AuxIVA_T_ISS(torch.nn.Module):
     def __init__(
         self,
@@ -109,6 +147,7 @@ class AuxIVA_T_ISS(torch.nn.Module):
             self.model = LaplaceModel()
         else:
             self.model = model
+        assert callable(self.model)
 
         # metrology
         self.checkpoints_iter = checkpoints_iter
@@ -157,60 +196,30 @@ class AuxIVA_T_ISS(torch.nn.Module):
         eye = torch.eye(n_chan).type_as(self.W)
         self.W[...] = eye[:, None, :]
 
-        # the dereverberation filters
-        self.h = self.X.new_zeros(batch_shape + (n_chan, n_freq, n_chan, self.n_taps))
-
         for epoch in range(n_iter):
 
             if self.checkpoints_iter is not None and epoch in self.checkpoints_iter:
-                self.checkpoints_list.append(X)
+                self.checkpoints_list.append(self.X)
 
             # shape: (n_chan, n_freq, n_frames)
             # model takes as input a tensor of shape (..., n_frequencies, n_frames)
-            weights = self.model(X)
+            weights = self.model(self.X)
 
             # we normalize the sources to have source to have unit variance prior to
             # computing the model
-            g = torch.clamp(torch.mean(mag_sq(X), dim=(-2, -1), keepdim=True), min=1e-5)
-            X = divide(X, torch.sqrt(g))
+            g = torch.clamp(
+                torch.mean(mag_sq(self.X), dim=(-2, -1), keepdim=True), min=1e-5
+            )
+            g_sqrt = torch.sqrt(g)
+            self.X = divide(self.X, g_sqrt)
+            self.W = divide(self.W, g_sqrt)
             weights = weights * g
 
             # Iterative Source Steering updates
-
-            # source separation part
-            for src in range(n_chan):
-                v = iss_block_update_type_1(src, self.X, weights)
-                self.X = self.X - torch.einsum(
-                    "...cf,...fn->...cfn", v, self.X[..., src, :, :]
-                )
-                self.W = self.W - torch.einsum(
-                    "...cf,...fd->...cfd", v, self.W[..., src, :, :]
-                )
-                # self.h = self.h - torch.einsum("...cf,...fdt->cfdt", v, self.h[..., src, :, :, :])
-
-            # dereverberation part
-            for src in range(n_chan):
-                for tap in range(self.n_taps):
-                    v = iss_block_update_type_2(src, tap, self.X, X_bar, weights)
-                    self.X = self.X - torch.einsum(
-                        "...cf,...fn->...cfn", v, X_bar[..., src, :, tap, :]
-                    )
-                    # hv = self.h[..., src, tap] - v[..., None, None]
-                    # self.h[..., src, tap] = hv
+            self.X, self.W = iss_updates(self.X, X_bar, self.W, weights)
 
         # projection back
         if proj_back:
-            # projection back (not efficient yet)
-            e1_shape = [1] * (len(batch_shape) + 1) + [n_chan, 1]
-            e1 = self.W.new_zeros(e1_shape)
-            e1[..., 0, 0] = 1.0
-            e1 = torch.eye(n_chan, 1, dtype=self.W.dtype, device=self.W.device)[
-                None, ...
-            ]
-            WT = self.W.transpose(-3, -2)
-            WT = WT.transpose(-2, -1)
-            a = torch.linalg.solve(WT, e1)
-            a = a.transpose(-3, -2)
-            self.X = self.X * a
+            self.X, _ = projection_back(self.X, self.W, self.eps)
 
         return self.X

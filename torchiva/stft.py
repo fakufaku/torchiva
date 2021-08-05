@@ -76,7 +76,6 @@ class STFT(STFTBase):
         # restore batch shape
         X = X_flat.reshape(batch_shape + X_flat.shape[-2:])
 
-        # make complex tensor and re-order shape (n_batch, n_channels, n_frequencies, n_frames)
         return X
 
     def _backward(self, X: pt.Tensor):

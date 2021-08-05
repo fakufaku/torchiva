@@ -1,8 +1,7 @@
-from typing import List, Optional
+from typing import List, Optional, Callable
 
 import torch as pt
 
-from .base import SourceModelBase
 from .linalg import bmm, divide, eigh, hermite, mag, mag_sq, multiply
 from .models import LaplaceModel
 from .parameters import eps_models
@@ -64,7 +63,7 @@ def overiva(
     X: pt.Tensor,
     n_iter: Optional[int] = 20,
     n_src: Optional[int] = None,
-    model: Optional[SourceModelBase] = None,
+    model: Optional[Callable] = None,
     eps: Optional[float] = None,
     checkpoints_iter: Optional[List[int]] = None,
     checkpoints_list: Optional[List] = None,
@@ -102,7 +101,7 @@ def overiva(
         model = LaplaceModel()
 
     # for now, only supports determined case
-    assert isinstance(model, SourceModelBase)
+    assert callable(model)
 
     W_top = X.new_zeros(batch_shape + (n_freq, n_src, n_chan))
     # minus sign so that the parametrization is correct for overiva
@@ -180,7 +179,7 @@ def overiva(
 def auxiva_ip(
     X: pt.Tensor,
     n_iter: Optional[int] = 20,
-    model: Optional[SourceModelBase] = None,
+    model: Optional[Callable] = None,
     eps: Optional[float] = None,
     checkpoints_iter: Optional[List[int]] = None,
     checkpoints_list: Optional[List] = None,

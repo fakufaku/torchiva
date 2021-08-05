@@ -1,9 +1,8 @@
 import math
-from typing import List, Optional
+from typing import List, Optional, Callable
 
 import torch as pt
 
-from .base import SourceModelBase
 from .linalg import bmm, divide, eigh, hermite, mag, mag_sq, multiply
 from .models import LaplaceModel
 from .parameters import eps_models
@@ -65,7 +64,7 @@ def adjust_global_scale(Y, ref):
 def five(
     X: pt.Tensor,
     n_iter: Optional[int] = 20,
-    model: Optional[SourceModelBase] = None,
+    model: Optional[Callable] = None,
     eps: Optional[float] = None,
     ref_mic: Optional[float] = None,
     checkpoints_iter: Optional[List[int]] = None,
@@ -131,7 +130,7 @@ def five(
         return a.transpose(-3, -2) @ hermite(b.transpose(-3, -2))
 
     # for now, only supports determined case
-    assert isinstance(model, SourceModelBase)
+    assert callable(model)
 
     # Pre-whitening
 

@@ -1,8 +1,7 @@
-from typing import List, Optional
+from typing import List, Optional, Callable
 
 import torch as pt
 
-from .base import SourceModelBase
 from .linalg import bmm, divide, eigh, hermite, mag, mag_sq, multiply
 from .models import LaplaceModel
 from .parameters import eps_models
@@ -14,12 +13,6 @@ def control_scale(X):
     X = divide(X, g, eps=1e-5)
     X = pt.view_as_complex(pt.view_as_real(X) / pt.clamp(g[..., None], min=1e-5))
     return X
-
-
-def divide(num, denom, eps=1e-7):
-    return pt.view_as_complex(
-        pt.view_as_real(num) / pt.clamp(denom[..., None], min=eps)
-    )
 
 
 def spatial_model_update_iss(
@@ -144,7 +137,7 @@ def spatial_model_update_ip2(Xo: pt.Tensor, weights: pt.Tensor):
 def auxiva_iss(
     X: pt.Tensor,
     n_iter: Optional[int] = 20,
-    model: Optional[SourceModelBase] = None,
+    model: Optional[Callable] = None,
     eps: Optional[float] = None,
     two_chan_ip2: Optional[bool] = False,
     checkpoints_iter: Optional[List[int]] = None,
@@ -179,7 +172,7 @@ def auxiva_iss(
         model = LaplaceModel()
 
     # for now, only supports determined case
-    assert isinstance(model, SourceModelBase)
+    assert callable(model)
 
     if n_chan == 2 and two_chan_ip2:
         Xo = X

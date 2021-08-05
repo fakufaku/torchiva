@@ -6,7 +6,7 @@ from typing import Optional
 import torch as pt
 
 from .base import SourceModelBase
-from .linalg import mag_sq
+from ..linalg import mag_sq
 from .parameters import eps_models
 
 
@@ -31,7 +31,7 @@ class LaplaceModel(SourceModelBase):
         return r_inv
 
 
-class GaussModel(SourceModelBase):
+class GaussModel(pt.nn.Module):
     def __init__(self, eps: Optional[float] = None):
         super().__init__()
         self._eps = eps if eps is not None else eps_models["gauss"]
@@ -141,10 +141,3 @@ class NMFModel(SourceModelBase):
         iR = self.iR.reshape(batch_shape + (n_freq, n_frames))
 
         return iR
-
-
-source_models = {
-    "laplace": LaplaceModel(),
-    "gauss": GaussModel(),
-    "nmf": NMFModel(),
-}

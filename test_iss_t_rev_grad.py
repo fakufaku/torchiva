@@ -17,19 +17,10 @@ REF_MIC = 0
 RTOL = 1e-5
 
 
-def make_batch_array(lst, adjust="min"):
+def make_batch_array(lst):
 
-    if adjust == "max":
-        m = max([x.shape[-1] for x in lst])
-        batch = lst[0].new_zeros((len(lst), lst[0].shape[0], m))
-        for i, example in enumerate(lst):
-            batch[i, :, : example.shape[1]] = example
-        return batch
-    elif adjust == "min":
-        m = min([x.shape[-1] for x in lst])
-        return pt.cat([x[None, :, :m] for x in lst], dim=0)
-    else:
-        raise NotImplementedError()
+    m = min([x.shape[-1] for x in lst])
+    return pt.cat([x[None, :, :m] for x in lst], dim=0)
 
 
 def adjust_scale_format_int16(*arrays):
@@ -40,9 +31,33 @@ def adjust_scale_format_int16(*arrays):
     return out_arrays
 
 
+def set_requires_grad_(module):
+    for p in module.parameters():
+        p.requires_grad_()
+
+
+def print_params(module):
+    for p in module.parameters():
+        print(p)
+
+
+def scale(X):
+    g = torch.clamp(
+        torch.mean(bss.linalg.mag_sq(X), dim=(-2, -1), keepdim=True), min=1e-6
+    )
+    g = torch.sqrt(g)
+    X = bss.linalg.divide(X, g)
+    return X, g
+
+
+def unscale(X, g):
+    return X * g
+
+
 if __name__ == "__main__":
 
     np.random.seed(0)
+    torch.manual_seed(0)
 
     source_models = list(bss.models.source_models.keys())
 
@@ -66,7 +81,7 @@ if __name__ == "__main__":
         nargs="+",
         help="Room number",
     )
-    parser.add_argument("--n_fft", default=4096, type=int, help="STFT FFT size")
+    parser.add_argument("--n_fft", default=256, type=int, help="STFT FFT size")
     parser.add_argument("--hop", type=int, help="STFT hop length size")
     parser.add_argument(
         "--window",
@@ -76,14 +91,6 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-n", "--n_iter", default=10, type=int, help="Number of iterations"
-    )
-    parser.add_argument(
-        "-d",
-        "--source_model",
-        default=source_models[0],
-        choices=source_models,
-        type=str,
-        help="Source model",
     )
     parser.add_argument(
         "--dataset",
@@ -122,7 +129,7 @@ if __name__ == "__main__":
         mix_lst.append(mix)
 
         # the reference
-        ref_fns_list = rooms[room]["wav_dpath_image_reverberant"]
+        ref_fns_list = rooms[room]["wav_dpath_image_anechoic"]
         ref_fns = [Path(p) for p in ref_fns_list]
         ref_fns = [Path("").joinpath(*fn.parts[-2:]) for fn in ref_fns]
 
@@ -140,8 +147,8 @@ if __name__ == "__main__":
 
     fs = fs_1
 
-    mix = make_batch_array(mix_lst, adjust="max")
-    ref = make_batch_array(ref_lst, adjust="max")
+    mix = make_batch_array(mix_lst)
+    ref = make_batch_array(ref_lst)
     print(mix.shape, ref.shape)
 
     if len(args.rooms) == 1:
@@ -162,54 +169,72 @@ if __name__ == "__main__":
     # STFT
     X = stft(mix)  # copy for back projection (numpy/torch compatible)
 
+    X, g = scale(X)
+
+    X2 = X.clone()
+
+    X.requires_grad_()
+    X2.requires_grad_()
+
     t1 = time.perf_counter()
 
-    # Separation
-    Y = bss.auxiva_iss(
-        X, n_iter=args.n_iter, model=bss.source_models[args.source_model]
+    model1 = bss.models.SimpleModel(n_freq=args.n_fft // 2 + 1, n_mels=16)
+    model1 = model1.to(device)
+
+    model2 = bss.models.SimpleModel(n_freq=args.n_fft // 2 + 1, n_mels=16)
+    model2 = model2.to(device)
+
+    # make sure both models are initialized the same
+    with torch.no_grad():
+        for p1, p2 in zip(model1.parameters(), model2.parameters()):
+            p1.data[:] = p2.data
+
+    set_requires_grad_(model1)
+    set_requires_grad_(model2)
+
+    print(X[0, 50, 100:120])
+
+    # Separation normal
+    bss_algo = bss.AuxIVA_T_ISS(model=model1, n_taps=5, n_delay=1, proj_back=True)
+    Y1 = bss_algo(X, n_iter=args.n_iter)
+
+    Y1 = unscale(Y1, g)
+
+    # Separation reversible
+    Y2 = bss.iss_t_rev(
+        X2, model2, n_iter=args.n_iter, n_taps=5, n_delay=1, proj_back=True
     )
 
-    t2 = time.perf_counter()
+    Y2 = unscale(Y2, g)
 
-    print(f"Separation time: {t2 - t1:.3f} s")
+    def reconstruct_eval(Y):
+        y = stft.inv(Y)  # (n_samples, n_channels)
+        m = min([ref.shape[-1], y.shape[-1]])
+        sdr, perm = bss.metrics.si_sdr(ref[..., :m], y[..., :m])
+        return sdr.mean()
 
-    # Projection back
+    sdr1 = reconstruct_eval(Y1)
+    sdr2 = reconstruct_eval(Y2)
 
-    if args.p is not None:
-        Y = bss.minimum_distortion(Y, X[..., REF_MIC, :, :], p=args.p, q=args.q)
+    sdr1.backward()
+    sdr2.backward()
+
+    grads_1 = [p.grad for p in model1.parameters()]
+    grads_2 = [p.grad for p in model2.parameters()]
+
+    print(sdr1)
+    print(sdr2)
+
+    if grads_1[0] is not None:
+        print(grads_1[0])
+        print(grads_2[0])
+        print(
+            torch.norm(grads_1[0]),
+            torch.norm(grads_2[0]),
+            torch.norm(grads_1[0] - grads_2[0]),
+        )
     else:
-        Y = bss.projection_back(Y, X[..., REF_MIC, :, :])
-
-    t3 = time.perf_counter()
-
-    print(f"Proj. back time: {t3 - t2:.3f} s")
-
-    # iSTFT
-    y = stft.inv(Y)  # (n_samples, n_channels)
-
-    t4 = time.perf_counter()
-
-    # Evaluate
-    m = min([ref.shape[-1], y.shape[-1]])
-
-    # scale invaliant metric
-    sdr, sir, sar, perm = bss.metrics.si_bss_eval(ref[..., :m], y[..., :m])
-
-    t5 = time.perf_counter()
-
-    print(f"Eval. back time: {t5 - t4:.3f} s")
-
-    mix = mix.cpu()
-    ref = ref.cpu()
-    y = y.cpu()
-
-    mix, ref, y = adjust_scale_format_int16(mix, ref, y)
-
-    if mix.ndim == 2:
-        torchaudio.save("example_mix.wav", mix, fs)
-        torchaudio.save("example_ref.wav", ref[..., :m], fs)
-        torchaudio.save("example_output.wav", y[..., :m], fs)
-
-    # Reorder the signals
-    print("SDR:", sdr)
-    print("SIR:", sir)
+        print(X2.requires_grad)
+        print("yo!")
+        print(X.grad)
+        print(X2.grad)

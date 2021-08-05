@@ -35,7 +35,7 @@ if __name__ == "__main__":
 
     np.random.seed(0)
 
-    source_models = list(bss.source_models.keys())
+    source_models = list(bss.models.source_models.keys())
 
     parser = argparse.ArgumentParser(description="Separation example")
     parser.add_argument(
@@ -157,7 +157,10 @@ if __name__ == "__main__":
 
     # Separation
     bss_algo = bss.AuxIVA_T_ISS(
-        model=bss.source_models[args.source_model], n_taps=5, n_delay=1
+        model=bss.models.source_models[args.source_model],
+        n_taps=10,
+        n_delay=1,
+        proj_back=True,
     )
 
     Y = bss_algo(X, n_iter=args.n_iter)
@@ -167,7 +170,7 @@ if __name__ == "__main__":
     print(f"Separation time: {t2 - t1:.3f} s")
 
     # Projection back
-
+    """
     if args.p is not None:
         Y = bss.minimum_distortion(Y, X[..., REF_MIC, :, :], p=args.p, q=args.q)
     else:
@@ -176,6 +179,7 @@ if __name__ == "__main__":
     t3 = time.perf_counter()
 
     print(f"Proj. back time: {t3 - t2:.3f} s")
+    """
 
     # iSTFT
     y = stft.inv(Y)  # (n_samples, n_channels)
@@ -187,6 +191,7 @@ if __name__ == "__main__":
 
     # scale invaliant metric
     sdr, sir, sar, perm = bss.metrics.si_bss_eval(ref[..., :m], y[..., :m])
+    sdr2, perm = bss.metrics.si_sdr(ref[..., :m], y[..., :m])
 
     t5 = time.perf_counter()
 
@@ -204,5 +209,6 @@ if __name__ == "__main__":
         torchaudio.save("example_output.wav", y[..., :m], fs)
 
     # Reorder the signals
-    print("SDR:", sdr)
-    print("SIR:", sir)
+    print("SDR:", sdr.mean(dim=0))
+    print("SDR:", sdr2.mean(dim=0))
+    # print("SIR:", sir)

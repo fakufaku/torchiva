@@ -1,23 +1,23 @@
 import enum
-from typing import List, Optional
+from typing import List, Optional, Callable
 
 import torch as pt
 from torch import nn
 
 from .auxiva_iss import auxiva_iss
-from .base import SourceModelBase
 from .five import five
 from .linalg import bmm, eigh, hermite, multiply
 from .metrics import si_bss_eval
 from .models import LaplaceModel
 from .overiva import overiva
-from .scaling import (minimum_distortion, minimum_distortion_l2_phase,
-                      projection_back)
+from .scaling import minimum_distortion, minimum_distortion_l2_phase, projection_back
 from .stft import STFT
 
 
 class SepAlgo(enum.Enum):
     AUXIVA_ISS = "auxiva-iss"
+    AUXIVA_ISS_T = "auxiva-iss-t"
+    AUXIVA_ISS_T_REV = "auxiva-iss-t"
     AUXIVA_IP2 = "auxiva-ip2"
     OVERIVA_IP = "overiva-ip"
     FIVE = "five"
@@ -31,7 +31,7 @@ class Separator(nn.Module):
         algo: Optional[SepAlgo] = SepAlgo.AUXIVA_ISS,
         hop_length: Optional[int] = None,
         window: Optional[int] = None,
-        source_model: Optional[SourceModelBase] = None,
+        source_model: Optional[Callable] = None,
         n_iter: Optional[int] = 10,
         ref_mic: Optional[int] = 0,
         mdp_p: Optional[float] = None,
@@ -100,7 +100,10 @@ class Separator(nn.Module):
         if self.proj_back:
             Y = projection_back(Y, X[..., self.ref_mic, :, :])
         elif self.mdp_phase:
-            Y = minimum_distortion_l2_phase(Y, X[..., self.ref_mic, :, :],)
+            Y = minimum_distortion_l2_phase(
+                Y,
+                X[..., self.ref_mic, :, :],
+            )
         elif self.mdp_model is not None or self.mdp_p is not None:
             Y = minimum_distortion(
                 Y,
@@ -319,7 +322,10 @@ class MaskGEVBeamformer(nn.Module):
         if self.proj_back:
             Y = projection_back(Y, X[..., self.ref_mic, :, :])
         elif self.mdp_phase:
-            Y = minimum_distortion_l2_phase(Y, X[..., self.ref_mic, :, :],)
+            Y = minimum_distortion_l2_phase(
+                Y,
+                X[..., self.ref_mic, :, :],
+            )
         elif self.mdp_p is not None:
             Y = minimum_distortion(
                 Y,
@@ -380,7 +386,9 @@ class MaskSeparator(nn.Module):
 
 
 def sdr_loss(
-    estimated: pt.Tensor, reference: pt.Tensor, reduce: Optional[bool] = True,
+    estimated: pt.Tensor,
+    reference: pt.Tensor,
+    reduce: Optional[bool] = True,
 ):
     """
     Negative signal-to-distortion ratio loss. This loss is permuatation invariant.

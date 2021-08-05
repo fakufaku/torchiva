@@ -5,10 +5,9 @@ import torch as pt
 
 from .dtypes import dtype_cpx2f, dtype_f2cpx, is_complex_type
 
-complex_types = [pt.complex64, pt.complex128]
 
-
-def divide(num, denom, eps=1e-7):
+def divide(num: pt.Tensor, denom: pt.Tensor, eps: Optional[float] = 1e-7) -> pt.Tensor:
+    complex_types = [pt.complex64, pt.complex128]
     if num.dtype in complex_types and denom.dtype not in complex_types:
         return pt.view_as_complex(
             pt.view_as_real(num) / pt.clamp(denom[..., None], min=eps)
@@ -87,6 +86,7 @@ def bmm(input: pt.Tensor, mat2: pt.Tensor) -> pt.Tensor:
 
 
 def hermite(A: pt.Tensor, dim1: Optional[int] = -2, dim2: Optional[int] = -1):
+    complex_types = [pt.complex64, pt.complex128]
     if A.dtype in complex_types:
         return pt.conj(A.transpose(dim1, dim2))
     else:
@@ -301,7 +301,7 @@ def eigh(
     return return_type_eigh(eigenvalues, eigenvectors)
 
 
-def hankel_view(x, n_rows):
+def hankel_view(x: pt.Tensor, n_rows: int) -> pt.Tensor:
     """return a view of x as a Hankel matrix"""
     n_cols = x.shape[-1] - n_rows + 1
     x_strides = x.stride()

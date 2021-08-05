@@ -1,9 +1,9 @@
-from . import linalg, metrics, nn
+from . import linalg, metrics, nn, models
 from .auxiva_iss import auxiva_iss, spatial_model_update_ip2, spatial_model_update_iss
 from .auxiva_t_iss import AuxIVA_T_ISS
-from .base import SourceModelBase, Window, window_types
+from .iss_t_rev import iss_t_rev
+from .base import Window, window_types
 from .five import five
-from .models import GaussModel, LaplaceModel, NMFModel, source_models
 from .nn import SepAlgo
 from .overiva import auxiva_ip, overiva
 from .preprocessing import filter_dc
