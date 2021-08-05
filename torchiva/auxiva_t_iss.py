@@ -29,12 +29,19 @@ References
     JOINT DEREVERBERATION AND SEPARATION WITH ITERATIVE SOURCE STEERING,
     ICASSP, 2021, https://arxiv.org/pdf/2102.06322.pdf.
 """
-from typing import Optional, List
+from typing import Optional, List, NoReturn, Tuple
 import torch
 
 from .linalg import hankel_view, mag_sq, divide, multiply
 from .models import LaplaceModel
 from .parameters import eps_models
+
+
+def demix_derev(X, X_bar, W, H):
+    reverb = torch.einsum("...cfdt,...dftn->...cfn", H, X_bar)
+    sep = torch.einsum("...cfd,...dfn->...cfn", W, X)
+
+    return sep - reverb
 
 
 def iss_block_update_type_1(
@@ -97,6 +104,37 @@ def iss_updates(X, X_bar, W, weights):
             X = X - torch.einsum("...cf,...fn->...cfn", v, X_bar[..., src, :, tap, :])
 
     return X, W
+
+
+def iss_updates_with_H(
+    X: torch.Tensor,
+    X_bar: torch.Tensor,
+    W: torch.Tensor,
+    H: torch.Tensor,
+    weights: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    ISS updates performed in-place
+    """
+    n_chan, n_freq, n_frames = X.shape[-3:]
+    n_taps = X_bar.shape[-2]
+
+    # source separation part
+    for src in range(n_chan):
+        v = iss_block_update_type_1(src, X, weights)
+        X = X - torch.einsum("...cf,...fn->...cfn", v, X[..., src, :, :])
+        W = W - torch.einsum("...cf,...fd->...cfd", v, W[..., src, :, :])
+        H = H - torch.einsum("...cf,...fdt->cfdt", v, H[..., src, :, :, :])
+
+    # dereverberation part
+    for src in range(n_chan):
+        for tap in range(n_taps):
+            v = iss_block_update_type_2(src, tap, X, X_bar, weights)
+            X = X - torch.einsum("...cf,...fn->...cfn", v, X_bar[..., src, :, tap, :])
+            HV = H[..., src, tap] - v
+            H[..., src, tap] = HV
+
+    return X, W, H
 
 
 def projection_back(Y, W, eps=1e-6):
@@ -196,6 +234,8 @@ class AuxIVA_T_ISS(torch.nn.Module):
         eye = torch.eye(n_chan).type_as(self.W)
         self.W[...] = eye[:, None, :]
 
+        self.H = self.X.new_zeros(batch_shape + (n_chan, n_freq, n_chan, self.n_taps))
+
         for epoch in range(n_iter):
 
             if self.checkpoints_iter is not None and epoch in self.checkpoints_iter:
@@ -216,7 +256,17 @@ class AuxIVA_T_ISS(torch.nn.Module):
             weights = weights * g
 
             # Iterative Source Steering updates
-            self.X, self.W = iss_updates(self.X, X_bar, self.W, weights)
+            # self.X, self.W = iss_updates(self.X, X_bar, self.W, weights)
+            self.X, self.W, self.H = iss_updates_with_H(
+                self.X, X_bar, self.W, self.H, weights
+            )
+
+            # we recompute Y from W and H to avoid numerical errors in backward
+            """
+            sep = torch.einsum("...cfd,...dfn->...cfn", self.W, X)
+            rev = torch.einsum("...cfdt,...dftn->...cfn", self.H, X_bar)
+            self.X = sep - rev
+            """
 
         # projection back
         if proj_back:

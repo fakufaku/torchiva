@@ -63,6 +63,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Separation example")
     parser.add_argument(
+        "--no_pb", action="store_true", help="Deactivate projection back"
+    )
+    parser.add_argument(
         "-p",
         type=float,
         help="Outer norm",
@@ -195,14 +198,16 @@ if __name__ == "__main__":
     print(X[0, 50, 100:120])
 
     # Separation normal
-    bss_algo = bss.AuxIVA_T_ISS(model=model1, n_taps=5, n_delay=1, proj_back=True)
+    bss_algo = bss.AuxIVA_T_ISS(
+        model=model1, n_taps=5, n_delay=1, proj_back=not args.no_pb
+    )
     Y1 = bss_algo(X, n_iter=args.n_iter)
 
     Y1 = unscale(Y1, g)
 
     # Separation reversible
     Y2 = bss.iss_t_rev(
-        X2, model2, n_iter=args.n_iter, n_taps=5, n_delay=1, proj_back=True
+        X2, model2, n_iter=args.n_iter, n_taps=5, n_delay=1, proj_back=not args.no_pb
     )
 
     Y2 = unscale(Y2, g)
@@ -236,5 +241,5 @@ if __name__ == "__main__":
     else:
         print(X2.requires_grad)
         print("yo!")
-        print(X.grad)
-        print(X2.grad)
+        print("is X the same tensor as X2?", X is X2)
+        print(torch.norm(X.grad - X2.grad))

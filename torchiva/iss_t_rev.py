@@ -40,39 +40,27 @@ from .auxiva_t_iss import (
     iss_block_update_type_1,
     iss_block_update_type_2,
     projection_back,
+    iss_updates_with_H,
+    demix_derev,
 )
-from .auxiva_t_iss import iss_updates as iss_updates_original
 
 
-def iss_updates(
-    X: torch.Tensor,
-    X_bar: torch.Tensor,
-    W: torch.Tensor,
-    H: torch.Tensor,
-    weights: torch.Tensor,
-) -> NoReturn:
-    """
-    ISS updates performed in-place
-    """
-    n_chan, n_freq, n_frames = X.shape[-3:]
-    n_taps = X_bar.shape[-2]
+def enable_req_grad(*args):
+    for arg in args:
+        if arg is not None:
+            arg.requires_grad_()
 
-    # source separation part
-    for src in range(n_chan):
-        v = iss_block_update_type_1(src, X, weights)
-        X = X - torch.einsum("...cf,...fn->...cfn", v, X[..., src, :, :])
-        W = W - torch.einsum("...cf,...fd->...cfd", v, W[..., src, :, :])
-        H = H - torch.einsum("...cf,...fdt->cfdt", v, H[..., src, :, :, :])
 
-    # dereverberation part
-    for src in range(n_chan):
-        for tap in range(n_taps):
-            v = iss_block_update_type_2(src, tap, X, X_bar, weights)
-            X = X - torch.einsum("...cf,...fn->...cfn", v, X_bar[..., src, :, tap, :])
-            HV = H[..., src, tap] - v
-            H[..., src, tap] = HV
+def detach(*args):
+    for arg in args:
+        if arg is not None:
+            arg.detach_()
 
-    return X, W, H
+
+def zero_gradient(*args):
+    for arg in args:
+        if arg.grad is not None:
+            arg.graad.zero_()
 
 
 def iss_one_iter(X, X_bar, W, H, model):
@@ -86,11 +74,11 @@ def iss_one_iter(X, X_bar, W, H, model):
     g_sqrt = torch.sqrt(g)
     X = divide(X, g_sqrt)
     W = divide(W, g_sqrt)
+    H = divide(H, g_sqrt[..., None])
     weights = weights * g
 
     # Iterative Source Steering updates
-    X2, W2 = iss_updates_original(X, X_bar, W, weights)
-    X, W, H = iss_updates(X, X_bar, W, H, weights)
+    X, W, H = iss_updates_with_H(X, X_bar, W, H, weights)
 
     return X, W, H
 
@@ -165,14 +153,8 @@ class ISS_T_Rev_Function(torch.autograd.Function):
                     Y, X_bar, W[epoch], H[epoch], model
                 )
 
-            # test
-            """
-            sep = torch.einsum("...cfd,...dfn->...cfn", W[-1], X)
-            rev = torch.einsum("...cfdt,...dftn->...cfn", H[-1], X_bar)
-            Y_test = sep - rev
-            err_test = torch.sqrt(torch.mean(torch.abs(Y_test - Y) ** 2))
-            print("Error test:", err_test)
-            """
+                # we recompute Y from W and H to avoid numerical errors in backward
+                # Y = demix_derev(X, X_bar, W[epoch + 1], H[epoch + 1])
 
             # projection back
             if proj_back:
@@ -195,53 +177,34 @@ class ISS_T_Rev_Function(torch.autograd.Function):
         model, Y, X_bar, W, H, a, n_iter, proj_back, eps = ctx.extra_args
         grad_X = None
 
-        def enable_req_grad(*args):
-            for arg in args:
-                if arg is not None:
-                    arg.requires_grad_()
-                if arg.grad is not None:
-                    arg.grad.zero_()
-
-        def detach(*args):
-            for arg in args:
-                if arg is not None:
-                    arg.detach_()
-
         for p in model_params:
             if p.grad is not None:
                 p.grad.zero_()
 
-        Y_orig = Y
+        grad_model_params = [None for p in model_params]
+
+        enable_req_grad(*model_params)
 
         if proj_back:
             with torch.no_grad():
-                # a_2 = a.real ** 2 + a.imag ** 2
-                # b = a.conj() / torch.clamp(a_2, min=1e-5)
-                Y = Y / a
+                Y = demix_derev(X, X_bar, W[-1], H[-1])
 
             detach(Y)
 
             with torch.enable_grad():
                 enable_req_grad(Y)
+                zero_gradient(Y)
 
                 Y2, _ = projection_back(Y, W[-1], eps=eps)
-                print(torch.max(torch.norm(Y_orig - Y2)))
 
-                print("grad output before")
-                print(grad_output)
-                Y2.backward(grad_output)
-                grad_output = Y.grad
-                print("grad output after")
-                print(grad_output)
-                """
                 gradients = torch.autograd.grad(
                     outputs=Y2,
-                    inputs=[Y] + model_params,
+                    inputs=[Y],
                     grad_outputs=grad_output,
                     allow_unused=True,
                 )
 
-                grad_output = gradients[0]
+                grad_output = [gradients[0]]
 
                 for i, grad in enumerate(gradients[1:]):
                     if grad_model_params[i] is None:
@@ -249,32 +212,22 @@ class ISS_T_Rev_Function(torch.autograd.Function):
                     else:
                         if grad is not None:
                             grad_model_params[i] += grad
-                """
 
-            detach(Y, *model_params)
+            # detach(Y, *model_params)
 
         for epoch in range(1, n_iter + 1):
 
             # reverse the separation
             with torch.no_grad():
-                dW = W[-epoch - 1]
-                dH = H[-epoch - 1]
-                reverb = torch.einsum("...cfdt,...dftn->...cfn", dH, X_bar)
-                sep = torch.einsum("...cfd,...dfn->...cfn", dW, X)
-                Y = sep - reverb
-
-            detach(Y, *model_params)
+                Y = demix_derev(X, X_bar, W[-epoch - 1], H[-epoch - 1])
 
             # compute the gradient with one forward and backward pass
             with torch.enable_grad():
-                enable_req_grad(Y)
+                enable_req_grad(Y, *model_params)
+                zero_gradient(Y, *model_params)
 
                 Y2, *_ = iss_one_iter(Y, X_bar, W[-epoch - 1], H[-epoch - 1], model)
 
-                Y2.backward(grad_output)
-                grad_output = Y.grad
-
-                """
                 gradients = torch.autograd.grad(
                     outputs=Y2,
                     inputs=[Y] + model_params,
@@ -282,7 +235,7 @@ class ISS_T_Rev_Function(torch.autograd.Function):
                     allow_unused=True,
                 )
 
-                grad_output = gradients[0]
+                grad_output = [gradients[0]]
 
                 for i, grad in enumerate(gradients[1:]):
                     if grad_model_params[i] is None:
@@ -290,29 +243,16 @@ class ISS_T_Rev_Function(torch.autograd.Function):
                     else:
                         if grad is not None:
                             grad_model_params[i] += grad
-                """
-
-            detach(Y, *model_params)
-
-        print(Y[0, 50, 100:120])
 
         if ctx.needs_input_grad[-len(model_params) - 1]:
-            grad_X = grad_output
+            grad_X = grad_output[0]
 
         grad_outputs = [None] * 7
         grad_outputs += [grad_X]
-        """
         grad_outputs += [
             grad if needed else None
             for (grad, needed) in zip(
                 grad_model_params, ctx.needs_input_grad[-len(model_params) :]
-            )
-        ]
-        """
-        grad_outputs += [
-            p.grad if needed else None
-            for (p, needed) in zip(
-                model_params, ctx.needs_input_grad[-len(model_params) :]
             )
         ]
 
