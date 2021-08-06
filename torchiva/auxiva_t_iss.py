@@ -80,12 +80,10 @@ def iss_block_update_type_2(
     """
     n_chan, n_freq, n_frames = X.shape[-3:]
 
-    norm = 1.0 / n_frames
-
     Xst = X_bar[..., src, :, tap, :]
 
-    v_num = torch.einsum("...cfn,...cfn,...fn->...cf", weights, X, Xst.conj()) * norm
-    v_denom = torch.einsum("...cfn,...fn->...cf", weights, mag_sq(Xst)) * norm
+    v_num = torch.einsum("...cfn,...cfn,...fn->...cf", weights, X, Xst.conj())
+    v_denom = torch.einsum("...cfn,...fn->...cf", weights, mag_sq(Xst))
 
     v = divide(v_num, v_denom, eps=eps)
 
@@ -133,7 +131,7 @@ def iss_updates_with_H(
         v = iss_block_update_type_1(src, X, weights, eps=eps)
         X = X - torch.einsum("...cf,...fn->...cfn", v, X[..., src, :, :])
         W = W - torch.einsum("...cf,...fd->...cfd", v, W[..., src, :, :])
-        H = H - torch.einsum("...cf,...fdt->cfdt", v, H[..., src, :, :, :])
+        H = H - torch.einsum("...cf,...fdt->...cfdt", v, H[..., src, :, :, :])
 
     # dereverberation part
     for src in range(n_chan):

@@ -191,6 +191,7 @@ if __name__ == "__main__":
     t1 = time.perf_counter()
 
     model = bss.models.SimpleModel(n_freq=args.n_fft // 2 + 1, n_mels=16)
+    """
     model = bss.models.FNetModel(
         n_freq=args.n_fft // 2 + 1,
         n_mels=16,
@@ -199,9 +200,10 @@ if __name__ == "__main__":
         num_layers=6,
         eps=1e-6,
     )
+    """
     model = model.to(device)
 
-    eps = 1e-3
+    eps = 1e-6
     bss_algo = bss.AuxIVA_T_ISS(
         model=model, n_taps=5, n_delay=1, proj_back=not args.no_pb, eps=eps
     )
@@ -213,10 +215,11 @@ if __name__ == "__main__":
         return sdr.mean()
 
     ### optimization ###
-    optim_epoch = 200
+    optim_epoch = 50
     lr = 0.01
-    mom = 0.9
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=mom)
+    mom = 0.5
+    # optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=mom)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     method = "reversible"
     method = "regular"
 

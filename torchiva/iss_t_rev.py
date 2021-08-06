@@ -40,6 +40,7 @@ from .auxiva_t_iss import (
     iss_block_update_type_1,
     iss_block_update_type_2,
     projection_back,
+    projection_back_from_input,
     iss_updates_with_H,
     demix_derev,
 )
@@ -154,11 +155,12 @@ class ISS_T_Rev_Function(torch.autograd.Function):
                 )
 
                 # we recompute Y from W and H to avoid numerical errors in backward
-                # Y = demix_derev(X, X_bar, W[epoch + 1], H[epoch + 1])
+                Y = demix_derev(X, X_bar, W[epoch + 1], H[epoch + 1])
 
             # projection back
             if proj_back:
-                Y, a = projection_back(Y, W[-1], eps=eps)
+                # Y, a = projection_back(Y, W[-1], eps=eps)
+                Y, a = projection_back_from_input(Y, X, X_bar, ref_mic=0, eps=eps)
             else:
                 a = None
 
@@ -190,22 +192,20 @@ class ISS_T_Rev_Function(torch.autograd.Function):
 
             # compute the gradient with one forward and backward pass
             with torch.enable_grad():
-                W_loc = W[-1]
-                enable_req_grad(Y, W_loc)
-                zero_gradient(Y, W_loc)
+                enable_req_grad(Y)
+                zero_gradient(Y)
 
-                Y2, *_ = projection_back(Y, W_loc, eps)
+                Y2, *_ = projection_back_from_input(Y, X, X_bar, ref_mic=0, eps=eps)
 
                 grad_output = torch.autograd.grad(
                     outputs=Y2,
-                    inputs=[Y, W_loc],
+                    inputs=Y,
                     grad_outputs=grad_output,
                     allow_unused=True,
                 )
 
-        enable_req_grad(*model_params)
-
         for epoch in range(1, n_iter + 1):
+            enable_req_grad(Y, *model_params)
 
             # reverse the separation
             with torch.no_grad():
@@ -213,37 +213,21 @@ class ISS_T_Rev_Function(torch.autograd.Function):
 
             # compute the gradient with one forward and backward pass
             with torch.enable_grad():
-                W_loc = W[-epoch - 1]
+                enable_req_grad(Y, *model_params)
+                zero_gradient(Y, *model_params)
 
-                if proj_back and epoch == 1:
-                    enable_req_grad(Y, W_loc, *model_params)
-                    zero_gradient(Y, W_loc, *model_params)
-                else:
-                    enable_req_grad(Y, *model_params)
-                    zero_gradient(Y, *model_params)
-
-                Y2, W_loc2, *_ = iss_one_iter(
-                    Y, X_bar, W_loc, H[-epoch - 1], model, eps=eps
+                Y2, *_ = iss_one_iter(
+                    Y, X_bar, W[-epoch - 1], H[-epoch - 1], model, eps=eps
                 )
 
-                if proj_back and epoch == 1:
-                    outputs = [Y2, W_loc2]
-                    inputs = [Y, W_loc] + model_params
-                else:
-                    outputs = [Y2]
-                    inputs = [Y] + model_params
-
                 gradients = torch.autograd.grad(
-                    outputs=outputs,
-                    inputs=inputs,
+                    outputs=Y2,
+                    inputs=[Y] + model_params,
                     grad_outputs=grad_output,
                     allow_unused=True,
                 )
 
-                if proj_back and epoch == 1:
-                    grad_output = gradients[:2]
-                else:
-                    grad_output = gradients[:1]
+                grad_output = gradients[:1]
 
                 for i, grad in enumerate(gradients[len(grad_output) :]):
                     if grad_model_params[i] is None:

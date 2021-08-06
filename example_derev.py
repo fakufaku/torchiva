@@ -199,7 +199,6 @@ if __name__ == "__main__":
 
     # scale invaliant metric
     sdr, sir, sar, perm = bss.metrics.si_bss_eval(ref[..., :m], y[..., :m])
-    sdr2, perm = bss.metrics.si_sdr(ref[..., :m], y[..., :m])
 
     t5 = time.perf_counter()
 
@@ -217,6 +216,8 @@ if __name__ == "__main__":
         torchaudio.save("example_output.wav", y[..., :m], fs)
 
     # Reorder the signals
-    print("SDR:", sdr.mean(dim=0))
-    print("SDR:", sdr2.mean(dim=0))
+    print("SDR:", sdr)
+    print("SIR:", sir)
     # print("SIR:", sir)
+    print("SDR (mean):", sdr.mean())
+    print("SIR (mean):", sir.mean())
