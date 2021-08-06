@@ -17,10 +17,18 @@ REF_MIC = 0
 RTOL = 1e-5
 
 
-def make_batch_array(lst):
-
-    m = min([x.shape[-1] for x in lst])
-    return pt.cat([x[None, :, :m] for x in lst], dim=0)
+def make_batch_array(lst, adjust="min"):
+    if adjust == "max":
+        m = max([x.shape[-1] for x in lst])
+        batch = lst[0].new_zeros((len(lst), lst[0].shape[0], m))
+        for i, example in enumerate(lst):
+            batch[i, :, : example.shape[1]] = example
+        return batch
+    elif adjust == "min":
+        m = min([x.shape[-1] for x in lst])
+        return pt.cat([x[None, :, :m] for x in lst], dim=0)
+    else:
+        raise NotImplementedError()
 
 
 def adjust_scale_format_int16(*arrays):
@@ -131,8 +139,8 @@ if __name__ == "__main__":
 
     fs = fs_1
 
-    mix = make_batch_array(mix_lst)
-    ref = make_batch_array(ref_lst)
+    mix = make_batch_array(mix_lst, adjust="max")
+    ref = make_batch_array(ref_lst, adjust="max")
     print(mix.shape, ref.shape)
 
     if len(args.rooms) == 1:

@@ -45,7 +45,7 @@ def demix_derev(X, X_bar, W, H):
 
 
 def iss_block_update_type_1(
-    src: int, X: torch.Tensor, weights: torch.Tensor
+    src: int, X: torch.Tensor, weights: torch.Tensor, eps: Optional[float] = 1e-3
 ) -> torch.Tensor:
     """
     Compute the update vector for ISS corresponding to update of the sources
@@ -59,15 +59,20 @@ def iss_block_update_type_1(
     v_num = torch.einsum("...cfn,...cfn,...fn->...cf", weights, X, Xs.conj()) * norm
     v_denom = torch.einsum("...cfn,...fn->...cf", weights, mag_sq(Xs)) * norm
 
-    v = divide(v_num, v_denom, eps=1e-3)
-    v_s = 1.0 - (1.0 / torch.sqrt(torch.clamp(v_denom[..., src, :], min=1e-3)))
+    v = divide(v_num, v_denom, eps=eps)
+    v_s = 1.0 - (1.0 / torch.sqrt(torch.clamp(v_denom[..., src, :], min=eps)))
     v[..., src, :] = v_s
 
     return v
 
 
 def iss_block_update_type_2(
-    src: int, tap: int, X: torch.Tensor, X_bar: torch.Tensor, weights: torch.Tensor
+    src: int,
+    tap: int,
+    X: torch.Tensor,
+    X_bar: torch.Tensor,
+    weights: torch.Tensor,
+    eps: Optional[float] = 1e-3,
 ) -> torch.Tensor:
     """
     Compute the update vector for ISS corresponding to update of the taps
@@ -80,27 +85,27 @@ def iss_block_update_type_2(
     Xst = X_bar[..., src, :, tap, :]
 
     v_num = torch.einsum("...cfn,...cfn,...fn->...cf", weights, X, Xst.conj()) * norm
-    v_denom = torch.einsum("...cfn,...fn->...cf", weights, mag_sq(Xst))
+    v_denom = torch.einsum("...cfn,...fn->...cf", weights, mag_sq(Xst)) * norm
 
-    v = divide(v_num, v_denom, eps=1e-3)
+    v = divide(v_num, v_denom, eps=eps)
 
     return v
 
 
-def iss_updates(X, X_bar, W, weights):
+def iss_updates(X, X_bar, W, weights, eps=1e-3):
     n_chan, n_freq, n_frames = X.shape[-3:]
     n_taps = X_bar.shape[-2]
 
     # source separation part
     for src in range(n_chan):
-        v = iss_block_update_type_1(src, X, weights)
+        v = iss_block_update_type_1(src, X, weights, eps=eps)
         X = X - torch.einsum("...cf,...fn->...cfn", v, X[..., src, :, :])
         W = W - torch.einsum("...cf,...fd->...cfd", v, W[..., src, :, :])
 
     # dereverberation part
     for src in range(n_chan):
         for tap in range(n_taps):
-            v = iss_block_update_type_2(src, tap, X, X_bar, weights)
+            v = iss_block_update_type_2(src, tap, X, X_bar, weights, eps=eps)
             X = X - torch.einsum("...cf,...fn->...cfn", v, X_bar[..., src, :, tap, :])
 
     return X, W
@@ -112,6 +117,7 @@ def iss_updates_with_H(
     W: torch.Tensor,
     H: torch.Tensor,
     weights: torch.Tensor,
+    eps: Optional[float] = 1e-3,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     ISS updates performed in-place
@@ -121,7 +127,7 @@ def iss_updates_with_H(
 
     # source separation part
     for src in range(n_chan):
-        v = iss_block_update_type_1(src, X, weights)
+        v = iss_block_update_type_1(src, X, weights, eps=eps)
         X = X - torch.einsum("...cf,...fn->...cfn", v, X[..., src, :, :])
         W = W - torch.einsum("...cf,...fd->...cfd", v, W[..., src, :, :])
         H = H - torch.einsum("...cf,...fdt->cfdt", v, H[..., src, :, :, :])
@@ -129,7 +135,7 @@ def iss_updates_with_H(
     # dereverberation part
     for src in range(n_chan):
         for tap in range(n_taps):
-            v = iss_block_update_type_2(src, tap, X, X_bar, weights)
+            v = iss_block_update_type_2(src, tap, X, X_bar, weights, eps=eps)
             X = X - torch.einsum("...cf,...fn->...cfn", v, X_bar[..., src, :, tap, :])
             HV = H[..., src, tap] - v
             H[..., src, tap] = HV
@@ -137,7 +143,7 @@ def iss_updates_with_H(
     return X, W, H
 
 
-def projection_back(Y, W, eps=1e-6):
+def projection_back(Y, W, ref_mic=0, eps=1e-6):
     # projection back (not efficient yet)
     batch_shape = Y.shape[:-3]
     n_chan, n_freq, n_frames = Y.shape[-3:]
@@ -146,10 +152,11 @@ def projection_back(Y, W, eps=1e-6):
     e1_shape = [1] * (len(batch_shape) + 1) + [n_chan, 1]
     e1 = W.new_zeros(e1_shape)
     e1[..., 0, 0] = 1.0
-    e1 = torch.eye(n_chan, 1)[None, ...].type_as(W)
+    eye = torch.eye(n_chan, n_chan)[None, ...].type_as(W)
+    e1 = eye[..., :, [ref_mic]]
     WT = W.transpose(-3, -2)
     WT = WT.transpose(-2, -1)
-    a = torch.linalg.solve(WT, e1)
+    a = torch.linalg.solve(WT + eps * eye, e1)
     a = a.transpose(-3, -2)
     Y = Y * a
 
@@ -180,6 +187,8 @@ class AuxIVA_T_ISS(torch.nn.Module):
 
         if eps is None:
             self.eps = eps_models["laplace"]
+        else:
+            self.eps = eps
 
         if model is None:
             self.model = LaplaceModel()
@@ -234,8 +243,6 @@ class AuxIVA_T_ISS(torch.nn.Module):
         eye = torch.eye(n_chan).type_as(self.W)
         self.W[...] = eye[:, None, :]
 
-        self.H = self.X.new_zeros(batch_shape + (n_chan, n_freq, n_chan, self.n_taps))
-
         for epoch in range(n_iter):
 
             if self.checkpoints_iter is not None and epoch in self.checkpoints_iter:
@@ -248,28 +255,18 @@ class AuxIVA_T_ISS(torch.nn.Module):
             # we normalize the sources to have source to have unit variance prior to
             # computing the model
             g = torch.clamp(
-                torch.mean(mag_sq(self.X), dim=(-2, -1), keepdim=True), min=1e-5
+                torch.mean(mag_sq(self.X), dim=(-2, -1), keepdim=True), min=self.eps
             )
             g_sqrt = torch.sqrt(g)
-            self.X = divide(self.X, g_sqrt)
-            self.W = divide(self.W, g_sqrt)
+            self.X = divide(self.X, g_sqrt, eps=self.eps)
+            self.W = divide(self.W, g_sqrt, eps=self.eps)
             weights = weights * g
 
             # Iterative Source Steering updates
-            # self.X, self.W = iss_updates(self.X, X_bar, self.W, weights)
-            self.X, self.W, self.H = iss_updates_with_H(
-                self.X, X_bar, self.W, self.H, weights
-            )
-
-            # we recompute Y from W and H to avoid numerical errors in backward
-            """
-            sep = torch.einsum("...cfd,...dfn->...cfn", self.W, X)
-            rev = torch.einsum("...cfdt,...dftn->...cfn", self.H, X_bar)
-            self.X = sep - rev
-            """
+            self.X, self.W = iss_updates(self.X, X_bar, self.W, weights, eps=self.eps)
 
         # projection back
         if proj_back:
-            self.X, _ = projection_back(self.X, self.W, self.eps)
+            self.X, _ = projection_back(self.X, self.W, eps=self.eps)
 
         return self.X

@@ -195,11 +195,9 @@ if __name__ == "__main__":
     set_requires_grad_(model1)
     set_requires_grad_(model2)
 
-    print(X[0, 50, 100:120])
-
     # Separation normal
     bss_algo = bss.AuxIVA_T_ISS(
-        model=model1, n_taps=5, n_delay=1, proj_back=not args.no_pb
+        model=model1, n_taps=5, n_delay=1, proj_back=not args.no_pb, eps=1e-3
     )
     Y1 = bss_algo(X, n_iter=args.n_iter)
 
@@ -207,7 +205,13 @@ if __name__ == "__main__":
 
     # Separation reversible
     Y2 = bss.iss_t_rev(
-        X2, model2, n_iter=args.n_iter, n_taps=5, n_delay=1, proj_back=not args.no_pb
+        X2,
+        model2,
+        n_iter=args.n_iter,
+        n_taps=5,
+        n_delay=1,
+        eps=1e-3,
+        proj_back=not args.no_pb,
     )
 
     Y2 = unscale(Y2, g)

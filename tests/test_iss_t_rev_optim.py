@@ -17,10 +17,18 @@ REF_MIC = 0
 RTOL = 1e-5
 
 
-def make_batch_array(lst):
-
-    m = min([x.shape[-1] for x in lst])
-    return pt.cat([x[None, :, :m] for x in lst], dim=0)
+def make_batch_array(lst, adjust="min"):
+    if adjust == "max":
+        m = max([x.shape[-1] for x in lst])
+        batch = lst[0].new_zeros((len(lst), lst[0].shape[0], m))
+        for i, example in enumerate(lst):
+            batch[i, :, : example.shape[1]] = example
+        return batch
+    elif adjust == "min":
+        m = min([x.shape[-1] for x in lst])
+        return pt.cat([x[None, :, :m] for x in lst], dim=0)
+    else:
+        raise NotImplementedError()
 
 
 def adjust_scale_format_int16(*arrays):
@@ -77,13 +85,11 @@ if __name__ == "__main__":
         help="Inner norm",
     )
     parser.add_argument(
-        "-r",
-        "--rooms",
-        default=[0],
-        metavar="ROOMS",
+        "-b",
+        "--batch_size",
+        default=1,
         type=int,
-        nargs="+",
-        help="Room number",
+        help="Batch size",
     )
     parser.add_argument("--n_fft", default=256, type=int, help="STFT FFT size")
     parser.add_argument("--hop", type=int, help="STFT hop length size")
@@ -110,19 +116,21 @@ if __name__ == "__main__":
         metadata = json.load(f)
 
     rooms = list(metadata.values())
+    sample_ids = list(range(args.batch_size))
 
     assert all(
-        [r >= 0 and r < len(rooms) for r in args.rooms]
+        [r >= 0 and r < len(rooms) for r in sample_ids]
     ), f"Room must be between 0 and {len(rooms) - 1}"
 
-    t60 = [rooms[r]["rir_info_t60"] for r in args.rooms]
-    print(f"Using rooms {args.rooms} with T60={t60}")
+    t60 = [rooms[r]["rir_info_t60"] for r in sample_ids]
+    print(f"Using rooms {sample_ids} with T60={t60}")
 
     # choose and read the audio files
 
     mix_lst = []
     ref_lst = []
-    for room in args.rooms:
+    sample_ids = list(range(args.batch_size))
+    for room in sample_ids:
 
         # the mixtures
         fn_mix = Path(rooms[room]["wav_dpath_mixed_reverberant"])
@@ -151,11 +159,11 @@ if __name__ == "__main__":
 
     fs = fs_1
 
-    mix = make_batch_array(mix_lst)
-    ref = make_batch_array(ref_lst)
+    mix = make_batch_array(mix_lst, adjust="max")
+    ref = make_batch_array(ref_lst, adjust="max")
     print(mix.shape, ref.shape)
 
-    if len(args.rooms) == 1:
+    if args.batch_size == 1:
         mix = mix[0]
         ref = ref[0]
 
@@ -183,10 +191,19 @@ if __name__ == "__main__":
     t1 = time.perf_counter()
 
     model = bss.models.SimpleModel(n_freq=args.n_fft // 2 + 1, n_mels=16)
+    model = bss.models.FNetModel(
+        n_freq=args.n_fft // 2 + 1,
+        n_mels=16,
+        expansion_factor=2,
+        dropout=0.5,
+        num_layers=6,
+        eps=1e-6,
+    )
     model = model.to(device)
 
+    eps = 1e-3
     bss_algo = bss.AuxIVA_T_ISS(
-        model=model, n_taps=5, n_delay=1, proj_back=not args.no_pb
+        model=model, n_taps=5, n_delay=1, proj_back=not args.no_pb, eps=eps
     )
 
     def reconstruct_eval(Y):
@@ -196,9 +213,9 @@ if __name__ == "__main__":
         return sdr.mean()
 
     ### optimization ###
-    optim_epoch = 50
+    optim_epoch = 200
     lr = 0.01
-    mom = 0.5
+    mom = 0.9
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=mom)
     method = "reversible"
     method = "regular"
@@ -215,6 +232,7 @@ if __name__ == "__main__":
                 n_taps=5,
                 n_delay=1,
                 proj_back=not args.no_pb,
+                eps=eps,
             )
 
         else:

@@ -60,25 +60,25 @@ def detach(*args):
 def zero_gradient(*args):
     for arg in args:
         if arg.grad is not None:
-            arg.graad.zero_()
+            arg.grad.zero_()
 
 
-def iss_one_iter(X, X_bar, W, H, model):
+def iss_one_iter(X, X_bar, W, H, model, eps=1e-3):
     # shape: (n_chan, n_freq, n_frames)
     # model takes as input a tensor of shape (..., n_frequencies, n_frames)
     weights = model(X)
 
     # we normalize the sources to have source to have unit variance prior to
     # computing the model
-    g = torch.clamp(torch.mean(mag_sq(X), dim=(-2, -1), keepdim=True), min=1e-5)
+    g = torch.clamp(torch.mean(mag_sq(X), dim=(-2, -1), keepdim=True), min=eps)
     g_sqrt = torch.sqrt(g)
-    X = divide(X, g_sqrt)
-    W = divide(W, g_sqrt)
-    H = divide(H, g_sqrt[..., None])
+    X = divide(X, g_sqrt, eps=eps)
+    W = divide(W, g_sqrt, eps=eps)
+    H = divide(H, g_sqrt[..., None], eps=eps)
     weights = weights * g
 
     # Iterative Source Steering updates
-    X, W, H = iss_updates_with_H(X, X_bar, W, H, weights)
+    X, W, H = iss_updates_with_H(X, X_bar, W, H, weights, eps=eps)
 
     return X, W, H
 
@@ -150,7 +150,7 @@ class ISS_T_Rev_Function(torch.autograd.Function):
                     checkpoints_list.append(Y)
 
                 Y, W[epoch + 1], H[epoch + 1] = iss_one_iter(
-                    Y, X_bar, W[epoch], H[epoch], model
+                    Y, X_bar, W[epoch], H[epoch], model, eps=eps
                 )
 
                 # we recompute Y from W and H to avoid numerical errors in backward
@@ -175,6 +175,7 @@ class ISS_T_Rev_Function(torch.autograd.Function):
 
         X, *model_params = ctx.saved_tensors
         model, Y, X_bar, W, H, a, n_iter, proj_back, eps = ctx.extra_args
+        ctx.extra_args = None
         grad_X = None
 
         for p in model_params:
@@ -183,37 +184,26 @@ class ISS_T_Rev_Function(torch.autograd.Function):
 
         grad_model_params = [None for p in model_params]
 
-        enable_req_grad(*model_params)
-
         if proj_back:
             with torch.no_grad():
                 Y = demix_derev(X, X_bar, W[-1], H[-1])
 
-            detach(Y)
-
+            # compute the gradient with one forward and backward pass
             with torch.enable_grad():
-                enable_req_grad(Y)
-                zero_gradient(Y)
+                W_loc = W[-1]
+                enable_req_grad(Y, W_loc)
+                zero_gradient(Y, W_loc)
 
-                Y2, _ = projection_back(Y, W[-1], eps=eps)
+                Y2, *_ = projection_back(Y, W_loc, eps)
 
-                gradients = torch.autograd.grad(
+                grad_output = torch.autograd.grad(
                     outputs=Y2,
-                    inputs=[Y],
+                    inputs=[Y, W_loc],
                     grad_outputs=grad_output,
                     allow_unused=True,
                 )
 
-                grad_output = [gradients[0]]
-
-                for i, grad in enumerate(gradients[1:]):
-                    if grad_model_params[i] is None:
-                        grad_model_params[i] = grad
-                    else:
-                        if grad is not None:
-                            grad_model_params[i] += grad
-
-            # detach(Y, *model_params)
+        enable_req_grad(*model_params)
 
         for epoch in range(1, n_iter + 1):
 
@@ -223,21 +213,39 @@ class ISS_T_Rev_Function(torch.autograd.Function):
 
             # compute the gradient with one forward and backward pass
             with torch.enable_grad():
-                enable_req_grad(Y, *model_params)
-                zero_gradient(Y, *model_params)
+                W_loc = W[-epoch - 1]
 
-                Y2, *_ = iss_one_iter(Y, X_bar, W[-epoch - 1], H[-epoch - 1], model)
+                if proj_back and epoch == 1:
+                    enable_req_grad(Y, W_loc, *model_params)
+                    zero_gradient(Y, W_loc, *model_params)
+                else:
+                    enable_req_grad(Y, *model_params)
+                    zero_gradient(Y, *model_params)
+
+                Y2, W_loc2, *_ = iss_one_iter(
+                    Y, X_bar, W_loc, H[-epoch - 1], model, eps=eps
+                )
+
+                if proj_back and epoch == 1:
+                    outputs = [Y2, W_loc2]
+                    inputs = [Y, W_loc] + model_params
+                else:
+                    outputs = [Y2]
+                    inputs = [Y] + model_params
 
                 gradients = torch.autograd.grad(
-                    outputs=Y2,
-                    inputs=[Y] + model_params,
+                    outputs=outputs,
+                    inputs=inputs,
                     grad_outputs=grad_output,
                     allow_unused=True,
                 )
 
-                grad_output = [gradients[0]]
+                if proj_back and epoch == 1:
+                    grad_output = gradients[:2]
+                else:
+                    grad_output = gradients[:1]
 
-                for i, grad in enumerate(gradients[1:]):
+                for i, grad in enumerate(gradients[len(grad_output) :]):
                     if grad_model_params[i] is None:
                         grad_model_params[i] = grad
                     else:
