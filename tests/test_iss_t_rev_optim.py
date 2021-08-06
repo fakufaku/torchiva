@@ -183,24 +183,16 @@ if __name__ == "__main__":
 
     X, g = scale(X)
 
-    X2 = X.clone()
-
-    X.requires_grad_()
-    X2.requires_grad_()
-
-    t1 = time.perf_counter()
-
     model = bss.models.SimpleModel(n_freq=args.n_fft // 2 + 1, n_mels=16)
-    """
     model = bss.models.FNetModel(
         n_freq=args.n_fft // 2 + 1,
-        n_mels=16,
+        n_mels=64,
         expansion_factor=2,
         dropout=0.5,
-        num_layers=6,
+        num_layers=8,
+        use_complex=True,
         eps=1e-6,
     )
-    """
     model = model.to(device)
 
     eps = 1e-6
@@ -216,12 +208,15 @@ if __name__ == "__main__":
 
     ### optimization ###
     optim_epoch = 50
-    lr = 0.01
+    lr = 0.009
     mom = 0.5
     # optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=mom)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     method = "reversible"
     method = "regular"
+
+    pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Number of trainable parameters: {pytorch_total_params}")
 
     for epoch in range(optim_epoch):
         optimizer.zero_grad()
