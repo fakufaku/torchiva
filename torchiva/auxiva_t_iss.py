@@ -32,7 +32,7 @@ References
 from typing import Optional, List, NoReturn, Tuple
 import torch
 
-from .linalg import hankel_view, mag_sq, divide, multiply
+from .linalg import hankel_view, mag_sq, divide, multiply, hermite
 from .models import LaplaceModel
 from .parameters import eps_models
 
@@ -125,6 +125,9 @@ def iss_updates_with_H(
     n_chan, n_freq, n_frames = X.shape[-3:]
     n_taps = X_bar.shape[-2]
 
+    # we make a copy because we need to do some inplace operations
+    H = H.clone()
+
     # source separation part
     for src in range(n_chan):
         v = iss_block_update_type_1(src, X, weights, eps=eps)
@@ -137,7 +140,7 @@ def iss_updates_with_H(
         for tap in range(n_taps):
             v = iss_block_update_type_2(src, tap, X, X_bar, weights, eps=eps)
             X = X - torch.einsum("...cf,...fn->...cfn", v, X_bar[..., src, :, tap, :])
-            HV = H[..., src, tap] - v
+            HV = H[..., src, tap] + v
             H[..., src, tap] = HV
 
     return X, W, H
@@ -158,6 +161,44 @@ def projection_back(Y, W, ref_mic=0, eps=1e-6):
     WT = WT.transpose(-2, -1)
     a = torch.linalg.solve(WT + eps * eye, e1)
     a = a.transpose(-3, -2)
+    Y = Y * a
+
+    return Y, a
+
+
+def projection_back_from_input(Y, X, X_bar, ref_mic=0, eps=1e-6):
+    # projection back (not efficient yet)
+    batch_shape = Y.shape[:-3]
+    n_chan, n_freq, n_frames = Y.shape[-3:]
+    n_taps = X_bar.shape[-2]
+    n_ch_tp = n_chan * n_taps
+
+    # construct covariance matrix
+    YY = torch.einsum("...cfn,...dfn->...fcd", Y.conj(), Y)
+    YXb = torch.einsum("...cfn,...dfun->...fcdu", Y.conj(), X_bar)
+    YXb = YXb.reshape(batch_shape + (n_freq, n_chan, n_ch_tp))
+    XbXb = torch.einsum("...cftn,...dfun->...fctdu", X_bar.conj(), X_bar)
+    XbXb = XbXb.reshape(batch_shape + (n_freq, n_ch_tp, n_ch_tp))
+
+    cm_top = torch.cat([YY, YXb], dim=-1)
+    cm_bot = torch.cat([hermite(YXb), XbXb], dim=-1)
+    covmat = torch.cat([cm_top, cm_bot], dim=-2)
+
+    # construct cross cov. vector
+    Xm = X[..., ref_mic, :, :]
+    Yx = torch.einsum("...cfn,...fn->...fc", Y.conj(), Xm)
+    Xbx = torch.einsum("...cftn,...fn->...fct", X_bar.conj(), Xm)
+    Xbx = Xbx.reshape(batch_shape + (n_freq, n_ch_tp))
+    xcov = torch.cat([Yx, Xbx], dim=-1)
+
+    # solve for projection back weights
+    a = torch.linalg.solve(covmat, xcov)
+
+    # re-arrange dim
+    a = a.transpose(-2, -1)
+    a = a[..., :n_chan, :, None]
+
+    # project Y
     Y = Y * a
 
     return Y, a
@@ -267,6 +308,7 @@ class AuxIVA_T_ISS(torch.nn.Module):
 
         # projection back
         if proj_back:
-            self.X, _ = projection_back(self.X, self.W, eps=self.eps)
+            # Y_test, _ = projection_back(self.X, self.W, eps=self.eps)
+            self.X, _ = projection_back_from_input(self.X, X, X_bar, eps=self.eps)
 
         return self.X

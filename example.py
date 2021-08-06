@@ -166,7 +166,7 @@ if __name__ == "__main__":
 
     # Separation
     Y = bss.auxiva_iss(
-        X, n_iter=args.n_iter, model=bss.source_models[args.source_model]
+        X, n_iter=args.n_iter, model=bss.models.source_models[args.source_model]
     )
 
     t2 = time.perf_counter()
