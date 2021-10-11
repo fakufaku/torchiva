@@ -133,7 +133,8 @@ if __name__ == "__main__":
     for room in sample_ids:
 
         # the mixtures
-        fn_mix = Path(rooms[room]["wav_dpath_mixed_reverberant"])
+        # fn_mix = Path(rooms[room]["wav_dpath_mixed_reverberant"])
+        fn_mix = Path(rooms[room]["wav_mixed_noise_reverb"])
         fn_mix = Path("").joinpath(*fn_mix.parts[-2:])
         fn_mix = args.dataset / fn_mix
         mix, fs_1 = torchaudio.load(fn_mix)
@@ -184,6 +185,7 @@ if __name__ == "__main__":
     X, g = scale(X)
 
     model = bss.models.SimpleModel(n_freq=args.n_fft // 2 + 1, n_mels=16)
+    """
     model = bss.models.FNetModel(
         n_freq=args.n_fft // 2 + 1,
         n_mels=64,
@@ -193,6 +195,7 @@ if __name__ == "__main__":
         use_complex=True,
         eps=1e-6,
     )
+    """
     model = model.to(device)
 
     eps = 1e-6
@@ -206,14 +209,13 @@ if __name__ == "__main__":
         sdr, perm = bss.metrics.si_sdr(ref[..., :m], y[..., :m])
         return sdr.mean()
 
-    ### optimization ###
-    optim_epoch = 50
-    lr = 0.009
+    # optimization #
+    optim_epoch = 100
+    lr = 0.001
     mom = 0.5
+
     # optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=mom)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    method = "reversible"
-    method = "regular"
 
     pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Number of trainable parameters: {pytorch_total_params}")

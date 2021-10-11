@@ -18,6 +18,50 @@ class ComplexDropout(nn.Module):
             return self.dropout(x)
 
 
+class ComplexLayerNorm(nn.Module):
+    def __init__(
+        self,
+        normalized_shape,
+        eps=1e-05,
+        elementwise_affine=True,
+        device=None,
+        dtype=None,
+    ):
+        super().__init__()
+
+        if isinstance(normalized_shape, int):
+            self.normalized_shape = [normalized_shape]
+        else:
+            self.normalized_shape = normalized_shape
+        self.elementwise_affine = elementwise_affine
+        self.eps = eps
+
+        self.norm_dim = list(range(-len(normalized_shape), 0))
+
+        if dtype is None:
+            dtype = torch.complex64
+
+        if self.elementwise_affine:
+            self.gamma = torch.nn.Parameter(
+                torch.zeros(self.normalized_shape, dtype=dtype, device=device)
+            )
+            self.beta = torch.nn.Parameter(
+                torch.zeros(self.normalized_shape, dtype=dtype, device=device)
+            )
+
+    def forward(self, x):
+
+        var = torch.var(x, dim=self.norm_dim, keepdim=True)
+        mean = torch.mean(x, dim=self.norm_dim, keepdim=True)
+
+        x = (x - mean) / torch.sqrt(var + self.eps)
+
+        if self.elementwise_affine:
+            x = self.gamma * x + self.beta
+
+        return x
+
+
 class ComplexLinear(nn.Module):
     def __init__(self, num_input, num_output, **kwargs):
         super().__init__()
