@@ -21,7 +21,6 @@ class Scaling(nn.Module):
     def forward(self, X):
         return X
 
-
 def projection_back(Y: pt.Tensor, ref: pt.Tensor) -> NoReturn:
     """
     Solves the scale ambiguity according to Murata et al., 2001.
@@ -56,7 +55,7 @@ def projection_back(Y: pt.Tensor, ref: pt.Tensor) -> NoReturn:
     b_flat = b.reshape((-1, n_chan, b.shape[-1]))
 
     dload = 1e-7 * pt.eye(n_chan, dtype=A_flat.dtype, device=A_flat.device)
-    c = pt.linalg.solve(A_flat + dload, b_flat)
+    c, _ = pt.solve(b_flat, A_flat + dload)
 
     return (Y * c.reshape(shape + (n_freq, n_chan, 1))).transpose(-3, -2)
 
@@ -164,6 +163,8 @@ def minimum_distortion(
         error = ref[..., :, None, :] - c[..., :, :, None] * Y
         if model is not None:
             weights = model(error.transpose(-3, -2)).transpose(-3, -2)
+            weights = weights[..., 0, 0, :, :]
+
             # let us normalize the weights along the time axis
             norm = pt.sum(weights, dim=-1, keepdim=True)
             norm = pt.clamp(norm, min=1e-5)

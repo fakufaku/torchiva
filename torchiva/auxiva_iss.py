@@ -1,7 +1,8 @@
-from typing import List, Optional, Callable
+from typing import List, Optional
 
 import torch as pt
 
+from .base import SourceModelBase
 from .linalg import bmm, divide, eigh, hermite, mag, mag_sq, multiply
 from .models import LaplaceModel
 from .parameters import eps_models
@@ -13,6 +14,12 @@ def control_scale(X):
     X = divide(X, g, eps=1e-5)
     X = pt.view_as_complex(pt.view_as_real(X) / pt.clamp(g[..., None], min=1e-5))
     return X
+
+
+def divide(num, denom, eps=1e-7):
+    return pt.view_as_complex(
+        pt.view_as_real(num) / pt.clamp(denom[..., None], min=eps)
+    )
 
 
 def spatial_model_update_iss(
@@ -124,9 +131,7 @@ def spatial_model_update_ip2(Xo: pt.Tensor, weights: pt.Tensor):
             bmm(pt.conj(eigvec[..., None, :, k]), bmm(V[k], eigvec[..., :, None, k]))
         )
         eigvec[..., :, k : k + 1] = divide(
-            eigvec[..., :, k : k + 1],
-            pt.sqrt(pt.clamp(scale, min=1e-7)),
-            eps=1e-7,
+            eigvec[..., :, k : k + 1], pt.sqrt(pt.clamp(scale, min=1e-7)), eps=1e-7,
         )
 
     X = bmm(hermite(eigvec), Xo.transpose(-3, -2)).transpose(-3, -2)
@@ -137,7 +142,7 @@ def spatial_model_update_ip2(Xo: pt.Tensor, weights: pt.Tensor):
 def auxiva_iss(
     X: pt.Tensor,
     n_iter: Optional[int] = 20,
-    model: Optional[Callable] = None,
+    model: Optional[SourceModelBase] = None,
     eps: Optional[float] = None,
     two_chan_ip2: Optional[bool] = False,
     checkpoints_iter: Optional[List[int]] = None,

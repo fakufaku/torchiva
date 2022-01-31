@@ -5,68 +5,6 @@ import torch as pt
 from scipy.optimize import linear_sum_assignment
 
 
-def _normalize(x: pt.Tensor, eps: Optional[float] = 1e-6, dim: Optional[int] = None):
-    x = x / pt.clamp(x.norm(dim=dim, keepdim=True), min=eps)
-    return x
-
-
-def _db_clamp_eps(db_max: float):
-    e = 10.0 ** (-db_max / 10.0)
-    eps = e / (1.0 + e)
-    return eps
-
-
-def si_sdr(
-    reference_signals: pt.Tensor,
-    estimated_signals: pt.Tensor,
-    db_clamp: Optional[float] = 60,
-) -> Tuple[pt.Tensor, pt.Tensor]:
-    """
-    Compute the Scaled Invariant Signal-to-Distortion Ration (SI-SDR) and related
-    measures according to [1]_.
-
-    .. [1] J. Le Roux, S. Wisdom, H. Erdogan, J. R. Hershey, "SDR - half-baked or well
-        done?", 2018, https://arxiv.org/abs/1811.02508
-
-    Parameters
-    ----------
-    reference_signals: torch.Tensor (..., n_channels, n_samples)
-        The reference clean signals
-    estimated_signal: torch.Tensor (..., n_channels, n_samples)
-        The signals to evaluate
-    db_clamp: float
-        Restrict the output to be between -db_clamp dB and db_clamp dB
-
-    Returns
-    -------
-    SI-SDR: torch.Tensor (..., n_channels)
-        Signal-to-Distortion Ratio
-    p_opts: torch.Tensor (..., n_channels)
-        The optimal ordering of the channels
-    """
-
-    # normalize
-    reference_signals = _normalize(reference_signals, dim=-1)
-    estimated_signals = _normalize(estimated_signals, dim=-1)
-
-    # compute the squared coherence
-    coh = pt.einsum("...ct,...dt->...cd", reference_signals, estimated_signals)
-    coh = coh ** 2
-
-    # clamp within desired decibel range
-    eps = _db_clamp_eps(db_clamp)
-    coh = pt.clamp(coh, min=eps, max=1 - eps)
-    ratio = (1 - coh) / coh
-
-    # apply the SDR mapping
-    si_sdr = -10.0 * pt.log10(ratio)
-
-    # solve the permutation
-    si_sdr, _, __, p_opts = _solve_permutation(si_sdr, si_sdr, si_sdr)
-
-    return si_sdr, p_opts
-
-
 def si_bss_eval(
     reference_signals: pt.Tensor,
     estimated_signals: pt.Tensor,
@@ -128,9 +66,9 @@ def si_bss_eval(
         Rss[..., i, i].clamp_(min=1e-5)
 
     output_shape = shape_batch + (n_chan_ref, n_chan_est)
-    SDR = pt.zeros(output_shape).type_as(reference_signals)
-    SIR = pt.zeros(output_shape).type_as(reference_signals)
-    SAR = pt.zeros(output_shape).type_as(reference_signals)
+    SDR = pt.zeros(output_shape)
+    SIR = pt.zeros(output_shape)
+    SAR = pt.zeros(output_shape)
 
     for r in range(n_chan_ref):
         for e in range(n_chan_est):
@@ -138,7 +76,9 @@ def si_bss_eval(
                 estimated_signals[..., e], reference_signals, Rss, r, scaling=scaling
             )
 
-    return _solve_permutation(SDR, SIR, SAR)
+    _, SDR, SIR, SAR, perm = _solve_permutation(-SIR, SDR, SIR, SAR, return_perm=True)
+
+    return SDR, SIR, SAR, perm
 
 
 def _compute_measures(
@@ -189,7 +129,7 @@ def _compute_measures(
 
     # Get the SIR
     Rsr = pt.matmul(reference_signals.transpose(-2, -1), e_res)
-    b = pt.linalg.solve(Rss, Rsr)  # caution: order of lhs and rhs is reverse in torch
+    b, _ = pt.solve(Rsr, Rss)  # caution: order of lhs and rhs is reverse in torch
 
     e_interf = pt.matmul(reference_signals, b)
     e_artif = e_res - e_interf
@@ -201,37 +141,43 @@ def _compute_measures(
 
 
 def _solve_permutation(
-    SDR: pt.Tensor, SIR: pt.Tensor, SAR: pt.Tensor
-) -> Tuple[pt.Tensor, pt.Tensor, pt.Tensor, pt.Tensor]:
+    target_loss_matrix: pt.Tensor, *args, return_perm: Optional[bool] = False
+) -> Tuple[pt.Tensor]:
     """
     Solve the permutation in numpy for now
     """
 
-    b_shape = SIR.shape[:-2]
-    n_chan_ref, n_chan_est = SIR.shape[-2:]
+    loss_mat = target_loss_matrix  # more consice name
+
+    b_shape = loss_mat.shape[:-2]
+    n_chan_ref, n_chan_est = loss_mat.shape[-2:]
     n_chan_out = min(n_chan_ref, n_chan_est)
 
+    """
     if n_chan_ref > n_chan_est:
-        SDR = SDR.transpose(-2, -1)
-        SIR = SIR.transpose(-2, -1)
-        SAR = SAR.transpose(-2, -1)
+        loss_mat = loss_mat.transpose(-2, -1)
+        args = list(args)
+        for i, arg in enumerate(args):
+            args[i] = arg.transpose(-2, -1)
+    """
 
-    SIR_npy = SIR.cpu().detach().numpy()
+    loss_mat_npy = loss_mat.cpu().detach().numpy()
 
-    SDR_out = SDR.new_zeros(b_shape + (n_chan_out,))
-    SIR_out = SIR.new_zeros(b_shape + (n_chan_out,))
-    SAR_out = SAR.new_zeros(b_shape + (n_chan_out,))
+    loss_out = loss_mat.new_zeros(b_shape + (n_chan_out,))
+    args_out = [arg.new_zeros(b_shape + (n_chan_out,)) for arg in args]
 
     p_opts = np.zeros(b_shape + (n_chan_out,), dtype=np.int64)
     for m in np.ndindex(b_shape):
-        dum, p_opt = _linear_sum_assignment_with_inf(-SIR_npy[m])
-        SDR_out[m] = SDR[m + (dum, p_opt)]
-        SIR_out[m] = SIR[m + (dum, p_opt)]
-        SAR_out[m] = SAR[m + (dum, p_opt)]
+        dum, p_opt = _linear_sum_assignment_with_inf(loss_mat_npy[m])
+        loss_out[m] = loss_mat[m + (dum, p_opt)]
+        for i, arg in enumerate(args):
+            args_out[i][m] = arg[m + (dum, p_opt)]
         p_opts[m] = p_opt
 
-    p_opts = pt.from_numpy(p_opts).to(SDR_out.device)
-    return SDR_out, SIR_out, SAR_out, p_opts
+    if return_perm:
+        return (loss_out,) + tuple(args_out) + (p_opt,)
+    else:
+        return (loss_out,) + args_out
 
 
 def _linear_sum_assignment_with_inf(

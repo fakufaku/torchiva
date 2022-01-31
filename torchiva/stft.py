@@ -1,72 +1,75 @@
 from typing import Optional, Union
 
 import torch as pt
-from scipy.signal import get_window
-
-from .base import STFTBase, Window
-from .dtypes import dtype_cpx2f, dtype_f2cpx
-
-_torch_windows = {
-    Window.BARTLETT: pt.bartlett_window,
-    Window.BLACKMAN: pt.blackman_window,
-    Window.HAMMING: pt.hamming_window,
-    Window.HANN: pt.hann_window,
-}
+from scipy.signal import get_window, istft, stft
 
 
-class STFT(STFTBase):
+class STFT(torch.nn.Module):
     def __init__(
         self,
         n_fft: int,
         hop_length: Optional[int] = None,
-        window: Optional[Union[Window, pt.Tensor]] = None,
+        window: Optional[Union[str, np.ndarray, torch.Tensor]] = None,
+        dtype=None,
     ):
+        super().__init__()
 
-        if isinstance(window, pt.Tensor):
-            self._window_custom = window
-            window = Window.CUSTOM
+        self._n_fft = n_fft
+        self._n_freq = n_fft // 2 + 1
+        self._hop_length = hop_length
+
+        if dtype is None and (window is None or isinstance(window, str)):
+            self.dtype = torch.zeros(1).dtype  # trick to get default type of torch
         else:
-            self._window_custom = None
+            self.dtype = dtype
 
-        super().__init__(n_fft, hop_length=hop_length, window=window)
+        if window is None:
+            window = "hamming"
 
-    def _make_window(self, x):
-
-        x_dtype = dtype_cpx2f(x)
-        x_device = x.device
-
-        if (
-            self._window is not None
-            and self._window.dtype == x_dtype
-            and self._window.device == x_device
-        ):
-            return
-
-        if self._window_type == Window.CUSTOM:
-            _window = self._window_custom
-            assert _window is not None, (
-                "For custom windows, the numpy array of the window"
-                " must be passed directly"
-            )
-            assert _window.ndim == 1, "The window must be a 1D array"
-            assert (
-                _window.shape[0] == self.n_fft
-            ), "The window length must be equal to the FFT length"
-            self._window = pt.Tensor(_window, dtype=x_dtype, device=x_device)
+        if isinstance(window, str):
+            self._window_type = window
+            window = get_window(window, self._n_fft)
         else:
-            self._window = _torch_windows[self._window_type](
-                self.n_fft, dtype=x_dtype, device=x_device
-            )
+            self.window_type = "custom"
 
-    def _forward(self, x: pt.Tensor):
+        if isinstance(window, np.ndarray):
+            window = torch.from_numpy(window)
+
+        # assign proper type, check dimension, and register as buffer
+        window = window.to(self.dtype)
+        assert isinstance(window, torch.Tensor)
+        assert window.ndim == 1 and window.shape[0] == self._n_fft
+        self.register_buffer("_window", window)
+
+    @property
+    def n_fft(self) -> int:
+        return self._n_fft
+
+    @property
+    def hop_length(self) -> int:
+        return self._hop_length
+
+    @property
+    def n_freq(self) -> int:
+        return self._n_freq
+
+    @property
+    def window(self) -> torch.Tensor:
+        return self._window
+
+    @property
+    def window_type(self) -> str:
+        return self._window_type
+
+    def __call__(self, x):
         batch_shape = x.shape[:-1]
         n_samples = x.shape[-1]
-        x_flat = x.reshape((-1, n_samples))
+        x = x.reshape((-1, n_samples))
 
         # transform! shape (n_batch * n_channels, n_frequencies, n_frames)
         # as of pytorch 1.8 the output can be complex
-        X_flat = pt.stft(
-            x_flat,
+        x = torch.stft(
+            x,
             self.n_fft,
             hop_length=self.hop_length,
             window=self.window,
@@ -74,20 +77,21 @@ class STFT(STFTBase):
         )
 
         # restore batch shape
-        X = X_flat.reshape(batch_shape + X_flat.shape[-2:])
+        x = x.reshape(batch_shape + x.shape[-2:])
 
-        return X
+        # make complex tensor and re-order shape (n_batch, n_channels, n_frequencies, n_frames)
+        return x
 
-    def _backward(self, X: pt.Tensor):
-        batch_shape = X.shape[:-2]
-        n_freq, n_frames = X.shape[-2:]
+    def inv(self, x):
+        batch_shape = x.shape[:-2]
+        n_freq, n_frames = x.shape[-2:]
 
         # flatten th batch and channels
-        X_flat = X.reshape((-1, n_freq, n_frames))
+        x = x.reshape((-1, n_freq, n_frames))
 
         # inverse transform on flat batch/channels
-        x_flat = pt.istft(
-            X_flat,
+        x = torch.istft(
+            x,
             self.n_fft,
             hop_length=self.hop_length,
             window=self.window,
@@ -95,4 +99,4 @@ class STFT(STFTBase):
         )
 
         # reshape as (n_batch, n_channels, n_samples) and return
-        return x_flat.reshape(batch_shape + x_flat.shape[-1:])
+        return x.reshape(batch_shape + x.shape[-1:])

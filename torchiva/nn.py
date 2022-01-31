@@ -1,23 +1,25 @@
 import enum
-from typing import List, Optional, Callable
+from typing import List, Optional, Dict, Union
 
 import torch as pt
 from torch import nn
 
 from .auxiva_iss import auxiva_iss
+from .base import SourceModelBase
 from .five import five
 from .linalg import bmm, eigh, hermite, multiply
 from .metrics import si_bss_eval
 from .models import LaplaceModel
 from .overiva import overiva
 from .scaling import minimum_distortion, minimum_distortion_l2_phase, projection_back
+from .mvdr import compute_mvdr_rtf_eigh, compute_mvdr_bf
+from .mwf import compute_mwf_bf
 from .stft import STFT
+from .utils import module_from_config
 
 
 class SepAlgo(enum.Enum):
     AUXIVA_ISS = "auxiva-iss"
-    AUXIVA_ISS_T = "auxiva-iss-t"
-    AUXIVA_ISS_T_REV = "auxiva-iss-t"
     AUXIVA_IP2 = "auxiva-ip2"
     OVERIVA_IP = "overiva-ip"
     FIVE = "five"
@@ -31,7 +33,7 @@ class Separator(nn.Module):
         algo: Optional[SepAlgo] = SepAlgo.AUXIVA_ISS,
         hop_length: Optional[int] = None,
         window: Optional[int] = None,
-        source_model: Optional[Callable] = None,
+        source_model: Optional[SourceModelBase] = None,
         n_iter: Optional[int] = 10,
         ref_mic: Optional[int] = 0,
         mdp_p: Optional[float] = None,
@@ -40,6 +42,7 @@ class Separator(nn.Module):
         mdp_phase: Optional[bool] = False,
         mdp_model: Optional[nn.Module] = None,
         postfilter_model: Optional[nn.Module] = None,
+        algo_kwargs: Optional[Dict] = None,
         checkpoints: Optional[List[int]] = None,
     ):
 
@@ -48,10 +51,17 @@ class Separator(nn.Module):
         if source_model is None:
             self.source_model = LaplaceModel()
         else:
-            self.source_model = source_model
+            if isinstance(source_model, dict):
+                self.source_model = module_from_config(**source_model)
+            else:
+                self.source_model = source_model
 
         self.n_src = n_src
         self.algo = algo
+        if algo_kwargs is None:
+            self.algo_kwargs = {}
+        else:
+            self.algo_kwargs = algo_kwargs
 
         # other attributes
         self.ref_mic = ref_mic
@@ -60,10 +70,17 @@ class Separator(nn.Module):
         self.mdp_q = mdp_q
         self.proj_back = proj_back
         self.mdp_phase = mdp_phase
-        self.mdp_model = mdp_model
+
+        if isinstance(mdp_model, dict):
+            self.mdp_model = module_from_config(**mdp_model)
+        else:
+            self.mdp_model = mdp_model
 
         # we can also optionnaly use a post-filter masking model
-        self.postfilter_model = postfilter_model
+        if isinstance(postfilter_model, dict):
+            self.postfilter_model = module_from_config(**postfilter_model)
+        else:
+            self.postfilter_model = postfilter_model
 
         # the stft engine
         self.stft = STFT(n_fft, hop_length=hop_length, window=window)
@@ -84,15 +101,15 @@ class Separator(nn.Module):
             import warnings
 
             warnings.warn(
-                "Algorithm FIVE can only extract one source. "
-                "Parameter n_src ignored."
+                "Algorithm FIVE can only extract one source. Parameter n_src ignored."
             )
 
     def postfilter(self, Y):
         if self.postfilter_model is None:
             return Y
         else:
-            mask = self.postfilter_model(Y)
+            mask = self.postfilter_model(Y[..., :, :])
+            mask = pt.mean(mask[..., 0, 0, :, :], dim=-1, keepdim=True)
             return mask * Y
 
     def scale(self, Y, X):
@@ -100,10 +117,7 @@ class Separator(nn.Module):
         if self.proj_back:
             Y = projection_back(Y, X[..., self.ref_mic, :, :])
         elif self.mdp_phase:
-            Y = minimum_distortion_l2_phase(
-                Y,
-                X[..., self.ref_mic, :, :],
-            )
+            Y = minimum_distortion_l2_phase(Y, X[..., self.ref_mic, :, :],)
         elif self.mdp_model is not None or self.mdp_p is not None:
             Y = minimum_distortion(
                 Y,
@@ -111,7 +125,7 @@ class Separator(nn.Module):
                 p=self.mdp_p,
                 q=self.mdp_q,
                 model=self.mdp_model,
-                max_iter=3,
+                max_iter=1,
             )
         else:
             pass
@@ -122,7 +136,7 @@ class Separator(nn.Module):
         if n_iter is None:
             n_iter = self.n_iter
 
-        if reset:
+        if hasattr(self.source_model, "reset") and reset:
             # this is required for models with internal state, such a ILRMA
             self.source_model.reset()
 
@@ -153,6 +167,7 @@ class Separator(nn.Module):
                 two_chan_ip2=False,
                 checkpoints_iter=self.checkpoints,
                 checkpoints_list=saved_checkpoints,
+                **self.algo_kwargs,
             )
 
         elif self._algo == SepAlgo.AUXIVA_IP2:
@@ -163,6 +178,7 @@ class Separator(nn.Module):
                 two_chan_ip2=True,
                 checkpoints_iter=self.checkpoints,
                 checkpoints_list=saved_checkpoints,
+                **self.algo_kwargs,
             )
 
         elif self._algo == SepAlgo.OVERIVA_IP:
@@ -173,6 +189,7 @@ class Separator(nn.Module):
                 model=self.source_model,
                 checkpoints_iter=self.checkpoints,
                 checkpoints_list=saved_checkpoints,
+                **self.algo_kwargs,
             )
 
         elif self._algo == SepAlgo.FIVE:
@@ -183,6 +200,7 @@ class Separator(nn.Module):
                 ref_mic=self.ref_mic,
                 checkpoints_iter=self.checkpoints,
                 checkpoints_list=saved_checkpoints,
+                **self.algo_kwargs,
             )
         else:
             raise NotImplementedError
@@ -207,6 +225,13 @@ class Separator(nn.Module):
                 "checkpoints": saved_checkpoints,
                 "ref": X,
             }
+
+        if y.shape[-1] < x.shape[-1]:
+            y = pt.cat(
+                (y, y.new_zeros(y.shape[:-1] + (x.shape[-1] - y.shape[-1],))), dim=-1
+            )
+        elif y.shape[-1] > x.shape[-1]:
+            y = y[..., : x.shape[-1]]
 
         return y
 
@@ -322,10 +347,7 @@ class MaskGEVBeamformer(nn.Module):
         if self.proj_back:
             Y = projection_back(Y, X[..., self.ref_mic, :, :])
         elif self.mdp_phase:
-            Y = minimum_distortion_l2_phase(
-                Y,
-                X[..., self.ref_mic, :, :],
-            )
+            Y = minimum_distortion_l2_phase(Y, X[..., self.ref_mic, :, :],)
         elif self.mdp_p is not None:
             Y = minimum_distortion(
                 Y,
@@ -360,6 +382,10 @@ class MaskSeparator(nn.Module):
         super().__init__()
 
         self.mask_model = mask_model
+        if isinstance(mask_model, dict):
+            self.mask_model = module_from_config(**mask_model)
+        else:
+            self.mask_model = mask_model
 
         # other attributes
         self.ref_mic = ref_mic
@@ -385,10 +411,210 @@ class MaskSeparator(nn.Module):
         return y
 
 
+class MVDRBeamformer(nn.Module):
+    """
+    Implementation of MVDR beamformer described in
+
+    C. Boeddeker et al., "CONVOLUTIVE TRANSFER FUNCTION INVARIANT SDR TRAINING
+    CRITERIA FOR MULTI-CHANNEL REVERBERANT SPEECH SEPARATION", Proc. ICASSP
+    2021.
+
+    Parameters
+    ----------
+    n_fft: int
+        FFT size for the STFT
+    hop_length: int
+        Shift of the STFT
+    window: str
+        The window to use for the STFT
+    mask_model: torch.nn.Module
+        A function that is given one spectrogram and returns 3 masks
+        of the same size as the input
+    ref_mic: int, optionala
+        Reference channel (default: 0)
+    use_n_power_iter: int, optional
+        Use the power iteration method to compute the relative
+        transfer function instead of the full generalized
+        eigenvalue decomposition (GEVD). The number of iteration
+        desired should be provided. By default, the full GEVD
+        is used
+    """
+
+    def __init__(
+        self,
+        n_fft: int,
+        hop_length: Optional[int] = None,
+        window: Optional[int] = None,
+        mask_model: Optional[Union[pt.nn.Module, Dict]] = None,
+        ref_mic: Optional[int] = 0,
+        use_n_power_iter: Optional[int] = None,
+    ):
+        super().__init__()
+        # other attributes
+        self.ref_mic = ref_mic
+        self.n_power_iter = use_n_power_iter
+
+        if isinstance(mask_model, dict):
+            self.mask_model = module_from_config(**mask_model)
+        elif isinstance(mask_model, nn.Module):
+            self.mask_model = mask_model
+
+        # the stft engine
+        self.stft = STFT(n_fft, hop_length=hop_length, window=window)
+
+    def forward(self, x):
+
+        X = self.stft(x)
+
+        # remove the DC
+        X = X[..., 1:, :]
+
+        # compute the masks (..., n_src, n_masks, n_freq, n_frames)
+        masks = self.mask_model(X[..., self.ref_mic, :, :])
+        masks = [masks[..., i, :, :] for i in range(3)]
+
+        # compute the covariance matrices
+        R_tgt, R_noise_1, R_noise_2 = [
+            pt.einsum("...sfn,...cfn,...dfn->...sfcd", mask, X, X.conj())
+            for mask in masks
+        ]
+
+        # compute the relative transfer function
+        rtf = compute_mvdr_rtf_eigh(
+            R_tgt, R_noise_2, power_iterations=self.n_power_iter
+        )
+
+        # compute the beamforming weights
+        # shape (..., n_freq, n_chan)
+        bf = compute_mvdr_bf(R_noise_1, rtf)
+
+        # compute output
+        X = pt.einsum("...cfn,...sfc->...sfn", X, bf.conj())
+
+        # add back DC offset
+        pad_shape = X.shape[:-2] + (1,) + X.shape[-1:]
+        X = pt.cat((X.new_zeros(pad_shape), X), dim=-2)
+
+        y = self.stft.inv(X)
+
+        if y.shape[-1] < x.shape[-1]:
+            y = pt.cat(
+                (y, y.new_zeros(y.shape[:-1] + (x.shape[-1] - y.shape[-1],))), dim=-1
+            )
+        elif y.shape[-1] > x.shape[-1]:
+            y = y[..., : x.shape[-1]]
+
+        return y
+
+
+class MWFBeamformer(nn.Module):
+    """
+    Implementation of the MWF beamformer described in
+
+    Y. Masuyama et al., "CONSISTENCY-AWARE MULTI-CHANNEL SPEECH ENHANCEMENT
+    USING DEEP NEURAL NETWORKS", Proc. ICASSP 2020.
+
+    Parameters
+    ----------
+    n_fft: int
+        FFT size for the STFT
+    hop_length: int
+        Shift of the STFT
+    window: str
+        The window to use for the STFT
+    mask_model: torch.nn.Module
+        A function that is given one spectrogram and returns 2 masks
+        of the same size as the input, (or 4 for the time-variant version)
+    ref_mic: int, optionala
+        Reference channel (default: 0)
+    time_invariant: bool, optional
+        If set to true, this flag indicates that we want to use the
+        time-invariant version of MWF (default).  If set to false, the
+        time-varying MWF is used instead
+    """
+
+    def __init__(
+        self,
+        n_fft: int,
+        hop_length: Optional[int] = None,
+        window: Optional[int] = None,
+        mask_model: Optional[Union[pt.nn.Module, Dict]] = None,
+        ref_mic: Optional[int] = 0,
+        time_invariant: Optional[bool] = True,
+    ):
+        super().__init__()
+        # other attributes
+        self.ref_mic = ref_mic
+        self.time_invariant = time_invariant
+
+        if isinstance(mask_model, dict):
+            self.mask_model = module_from_config(**mask_model)
+        elif isinstance(mask_model, nn.Module):
+            self.mask_model = mask_model
+
+        # the stft engine
+        self.stft = STFT(n_fft, hop_length=hop_length, window=window)
+
+    def forward(self, x):
+
+        X = self.stft(x)
+
+        # remove the DC
+        X = X[..., 1:, :]
+
+        # compute the masks (..., n_src, n_masks, n_freq, n_frames)
+        masks = self.mask_model(X[..., self.ref_mic, :, :])
+
+        covmat_masks = [masks[..., i, :, :] for i in range(2)]
+
+        # compute the covariance matrices
+        R_tgt, R_noise = [
+            pt.einsum("...sfn,...cfn,...dfn->...sfcd", mask, X, X.conj())
+            for mask in covmat_masks
+        ]
+
+        if self.time_invariant:
+
+            # compute the beamforming weights
+            # shape (..., n_freq, n_chan)
+            bf = compute_mwf_bf(R_tgt, R_noise, ref_mic=self.ref_mic)
+
+            # compute output
+            X = pt.einsum("...cfn,...sfc->...sfn", X, bf.conj())
+
+        else:
+            assert masks.shape[-3] == 4
+            V_tgt, V_noise = [masks[..., i, :, :] for i in range(2, 4)]
+
+            # new shape is (..., n_src, n_freq, n_frames, n_chan, n_chan)
+            R_tgt = R_tgt[..., :, None, :, :] * V_tgt[..., :, :, None, None]
+            R_noise = R_noise[..., :, None, :, :] * V_noise[..., :, :, None, None]
+
+            # compute the beamforming weights
+            # shape (..., n_freq, n_time, n_chan)
+            bf = compute_mwf_bf(R_tgt, R_noise, ref_mic=self.ref_mic)
+
+            # compute output
+            X = pt.einsum("...cfn,...sfnc->...sfn", X, bf.conj())
+
+        # add back DC offset
+        pad_shape = X.shape[:-2] + (1,) + X.shape[-1:]
+        X = pt.cat((X.new_zeros(pad_shape), X), dim=-2)
+
+        y = self.stft.inv(X)
+
+        if y.shape[-1] < x.shape[-1]:
+            y = pt.cat(
+                (y, y.new_zeros(y.shape[:-1] + (x.shape[-1] - y.shape[-1],))), dim=-1
+            )
+        elif y.shape[-1] > x.shape[-1]:
+            y = y[..., : x.shape[-1]]
+
+        return y
+
+
 def sdr_loss(
-    estimated: pt.Tensor,
-    reference: pt.Tensor,
-    reduce: Optional[bool] = True,
+    estimated: pt.Tensor, reference: pt.Tensor, reduce: Optional[bool] = True,
 ):
     """
     Negative signal-to-distortion ratio loss. This loss is permuatation invariant.

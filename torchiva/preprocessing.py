@@ -11,6 +11,8 @@ def filter_dc(
     n_fft: Optional[int] = 1024,
     hop_length: Optional[int] = 256,
     window: Optional[Union[str, Window]] = Window.HAMMING,
+    fc_cut: Optional[float] = 300,
+    fs: Optional[float] = 16000,
 ):
     """
     STFT domain filtering of the DC component
@@ -32,9 +34,14 @@ def filter_dc(
     """
     n_samples = x.shape[-1]
 
+    # compute the filter
+    n_bins = int(fc_cut / fs * n_fft)
+    coeffs = torch.hamming_window(n_bins * 2)[:n_bins].type_as(x)
+    coeffs = coeffs[:, None]
+
     stft = STFT(n_fft=1024, hop_length=256, window=Window.HAMMING)
     X = stft(x)
-    X[..., 0, :] = 0.0
+    X[..., :n_bins, :] *= coeffs
     x = stft.inv(X)
 
     return x[..., :n_samples]
