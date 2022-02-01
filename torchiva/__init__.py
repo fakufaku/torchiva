@@ -2,6 +2,7 @@ from . import linalg, metrics, nn, utils
 from .auxiva_iss import auxiva_iss, spatial_model_update_ip2, spatial_model_update_iss
 from .base import SourceModelBase, Window, window_types
 from .five import five
+from .iss_t import iss_t
 from .models import GaussModel, LaplaceModel, NMFModel, source_models
 from .nn import SepAlgo
 from .overiva import auxiva_ip, overiva
