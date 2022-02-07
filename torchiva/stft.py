@@ -1,6 +1,7 @@
 from typing import Optional, Union
 
-import torch as pt
+import numpy as np
+import torch
 from scipy.signal import get_window, istft, stft
 
 

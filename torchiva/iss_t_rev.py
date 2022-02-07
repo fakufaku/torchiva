@@ -1,4 +1,4 @@
-# Copyright (c) 2021 Robin Scheibler
+# Copyright (c) 2021 Robin Scheibler, Kohei Saijo
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -18,10 +18,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 """
-Joint Dereverberation and Blind Source Separation with Itarative Source Steering
+Joint Dereverberation and Blind Source Separation with Iterative Source Steering
 ================================================================================
-
-Online implementation of the algorithm presented in [1]_.
+Implementation of the algorithm presented in [1]_ using Demixing Matrix Checkpointing.
 
 References
 ----------
@@ -37,11 +36,8 @@ from .models import LaplaceModel
 from .parameters import eps_models
 
 from .auxiva_t_iss import (
-    iss_block_update_type_1,
-    iss_block_update_type_2,
-    projection_back,
     projection_back_from_input,
-    iss_updates_with_H,
+    iss_one_iter,
     demix_derev,
 )
 
@@ -64,26 +60,6 @@ def zero_gradient(*args):
             arg.grad.zero_()
 
 
-def iss_one_iter(X, X_bar, W, H, model, eps=1e-3):
-    # shape: (n_chan, n_freq, n_frames)
-    # model takes as input a tensor of shape (..., n_frequencies, n_frames)
-    weights = model(X)
-
-    # we normalize the sources to have source to have unit variance prior to
-    # computing the model
-    g = torch.clamp(torch.mean(mag_sq(X), dim=(-2, -1), keepdim=True), min=eps)
-    g_sqrt = torch.sqrt(g)
-    X = divide(X, g_sqrt, eps=eps)
-    W = divide(W, g_sqrt, eps=eps)
-    H = divide(H, g_sqrt[..., None], eps=eps)
-    weights = weights * g
-
-    # Iterative Source Steering updates
-    X, W, H = iss_updates_with_H(X, X_bar, W, H, weights, eps=eps)
-
-    return X, W, H
-
-
 class ISS_T_Rev_Function(torch.autograd.Function):
     @staticmethod
     def forward(
@@ -95,6 +71,8 @@ class ISS_T_Rev_Function(torch.autograd.Function):
         proj_back: bool,
         eps: float,
         checkpoints_iter: List[int],
+        checkpoints_list: List,
+        stage: str,
         X: torch.Tensor,
         *model_params,
     ) -> torch.Tensor:
@@ -108,12 +86,12 @@ class ISS_T_Rev_Function(torch.autograd.Function):
         proj_back:
             Flag that indicates if we want to restore the scale
             of the signal by projection back
-
         Returns
         -------
         Y: torch.Tensor, (..., n_channels, n_frequencies, n_frames)
             The separated and dereverberated signal
         """
+
         batch_shape = X.shape[:-3]
         n_chan, n_freq, n_frames = X.shape[-3:]
 
@@ -124,8 +102,6 @@ class ISS_T_Rev_Function(torch.autograd.Function):
 
         if eps is None:
             eps = eps_models["laplace"]
-
-        checkpoints_list = []
 
         Y = X.clone()
 
@@ -144,11 +120,22 @@ class ISS_T_Rev_Function(torch.autograd.Function):
         # the dereverberation filters
         H = Y.new_zeros((n_iter + 1,) + batch_shape + (n_chan, n_freq, n_chan, n_taps))
 
+        rng_state = []
+
         with torch.no_grad():
             for epoch in range(n_iter):
 
                 if checkpoints_iter is not None and epoch in checkpoints_iter:
-                    checkpoints_list.append(Y)
+                    if epoch == 0:
+                        checkpoints_list.append(Y)
+                    else:
+                        Y_checkpoint, _ = projection_back_from_input(
+                            Y, X, X_bar, ref_mic=0, eps=eps
+                        )
+                        checkpoints_list.append(Y_checkpoint)
+
+                #rng_state[epoch] = torch.cuda.get_rng_state()
+                rng_state.append(torch.cuda.get_rng_state())
 
                 Y, W[epoch + 1], H[epoch + 1] = iss_one_iter(
                     Y, X_bar, W[epoch], H[epoch], model, eps=eps
@@ -159,13 +146,13 @@ class ISS_T_Rev_Function(torch.autograd.Function):
 
             # projection back
             if proj_back:
-                # Y, a = projection_back(Y, W[-1], eps=eps)
                 Y, a = projection_back_from_input(Y, X, X_bar, ref_mic=0, eps=eps)
             else:
                 a = None
 
         # here we do the bookkeeping for the backward function
-        ctx.extra_args = (model, Y, X_bar, W, H, a, n_iter, proj_back, eps)
+        if stage == "train":
+            ctx.extra_args = (model, Y, X_bar, W, H, a, n_iter, proj_back, eps, rng_state)
 
         # we can detach the computation graph from Y
         Y.detach_()
@@ -176,7 +163,7 @@ class ISS_T_Rev_Function(torch.autograd.Function):
     def backward(ctx, grad_output):
 
         X, *model_params = ctx.saved_tensors
-        model, Y, X_bar, W, H, a, n_iter, proj_back, eps = ctx.extra_args
+        model, Y, X_bar, W, H, a, n_iter, proj_back, eps, rng_state = ctx.extra_args
         ctx.extra_args = None
         grad_X = None
 
@@ -216,6 +203,9 @@ class ISS_T_Rev_Function(torch.autograd.Function):
                 enable_req_grad(Y, *model_params)
                 zero_gradient(Y, *model_params)
 
+                state_now = torch.cuda.get_rng_state()
+                torch.cuda.set_rng_state(rng_state[-epoch])
+
                 Y2, *_ = iss_one_iter(
                     Y, X_bar, W[-epoch - 1], H[-epoch - 1], model, eps=eps
                 )
@@ -226,6 +216,8 @@ class ISS_T_Rev_Function(torch.autograd.Function):
                     grad_outputs=grad_output,
                     allow_unused=True,
                 )
+
+                torch.cuda.set_rng_state(state_now)
 
                 grad_output = gradients[:1]
 
@@ -239,7 +231,7 @@ class ISS_T_Rev_Function(torch.autograd.Function):
         if ctx.needs_input_grad[-len(model_params) - 1]:
             grad_X = grad_output[0]
 
-        grad_outputs = [None] * 7
+        grad_outputs = [None] * 9
         grad_outputs += [grad_X]
         grad_outputs += [
             grad if needed else None
@@ -255,11 +247,13 @@ def iss_t_rev(
     X: torch.Tensor,
     model: Callable = None,
     n_iter: Optional[int] = 10,
-    n_taps: Optional[int] = 0,
-    n_delay: Optional[int] = 0,
+    n_taps: Optional[int] = 5,
+    n_delay: Optional[int] = 1,
     proj_back: Optional[bool] = True,
     eps: Optional[float] = None,
     checkpoints_iter: Optional[List[int]] = None,
+    checkpoints_list: Optional[List] = None,
+    stage: Optional[str] = "train",
 ) -> torch.Tensor:
 
     model_params = [p for p in model.parameters()]
@@ -272,6 +266,8 @@ def iss_t_rev(
         proj_back,
         eps,
         checkpoints_iter,
+        checkpoints_list,
+        stage,
         X,
         *model_params,
     )

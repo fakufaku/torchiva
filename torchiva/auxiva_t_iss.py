@@ -1,4 +1,4 @@
-# Copyright (c) 2021 Robin Scheibler
+# Copyright (c) 2021 Robin Scheibler, Kohei Saijo
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,9 +20,7 @@
 """
 Joint Dereverberation and Blind Source Separation with Itarative Source Steering
 ================================================================================
-
 Online implementation of the algorithm presented in [1]_.
-
 References
 ----------
 .. [1] T. Nakashima, R. Scheibler, M. Togami, and N. Ono,
@@ -144,6 +142,26 @@ def iss_updates_with_H(
     return X, W, H
 
 
+def iss_one_iter(X, X_bar, W, H, model, eps=1e-3):
+    # shape: (n_chan, n_freq, n_frames)
+    # model takes as input a tensor of shape (..., n_frequencies, n_frames)
+    weights = model(X)
+
+    # we normalize the sources to have source to have unit variance prior to
+    # computing the model
+    g = torch.clamp(torch.mean(mag_sq(X), dim=(-2, -1), keepdim=True), min=eps)
+    g_sqrt = torch.sqrt(g)
+    X = divide(X, g_sqrt, eps=eps)
+    W = divide(W, g_sqrt, eps=eps)
+    H = divide(H, g_sqrt[..., None], eps=eps)
+    weights = weights * g
+
+    # Iterative Source Steering updates
+    X, W, H = iss_updates_with_H(X, X_bar, W, H, weights, eps=eps)
+
+    return X, W, H
+
+
 def projection_back(Y, W, ref_mic=0, eps=1e-6):
     # projection back (not efficient yet)
     batch_shape = Y.shape[:-3]
@@ -206,14 +224,14 @@ class AuxIVA_T_ISS(torch.nn.Module):
     def __init__(
         self,
         model: Optional[torch.nn.Module] = None,
-        n_taps: Optional[int] = 0,
-        n_delay: Optional[int] = 0,
-        n_iter: Optional[int] = 10,
+        n_taps: Optional[int] = 5,
+        n_delay: Optional[int] = 1,
+        n_iter: Optional[int] = 20,
         proj_back: Optional[bool] = True,
         eps: Optional[float] = None,
-        checkpoints_iter: Optional[List[int]] = None,
     ):
         super().__init__()
+
         self.n_taps = n_taps
         self.n_delay = n_delay
         self.n_iter = n_iter
@@ -236,14 +254,21 @@ class AuxIVA_T_ISS(torch.nn.Module):
         assert callable(self.model)
 
         # metrology
-        self.checkpoints_iter = checkpoints_iter
         self.checkpoints_list = []
+
+        print("n_iter: ", self.n_iter)
+        print("delay: ", self.n_delay)
+        print("taps: ", self.n_taps)
 
     def forward(
         self,
         X: torch.Tensor,
         n_iter: Optional[int] = None,
+        n_taps: Optional[int] = None,
+        n_delay: Optional[int] = None,
         proj_back: Optional[bool] = None,
+        checkpoints_iter: Optional[List] = None,
+        checkpoints_list: Optional[List] = None,
     ) -> torch.Tensor:
         """
         Parameters
@@ -255,7 +280,6 @@ class AuxIVA_T_ISS(torch.nn.Module):
         proj_back:
             Flag that indicates if we want to restore the scale
             of the signal by projection back
-
         Returns
         -------
         Y: torch.Tensor, (..., n_channels, n_frequencies, n_frames)
@@ -270,6 +294,8 @@ class AuxIVA_T_ISS(torch.nn.Module):
         if proj_back is None:
             proj_back = self.proj_back
 
+        self.checkpoints_iter = checkpoints_iter
+
         self.X = X.clone()
 
         # shape (..., n_chan, n_freq, n_taps + n_delay + 1, block_size)
@@ -282,11 +308,21 @@ class AuxIVA_T_ISS(torch.nn.Module):
         eye = torch.eye(n_chan).type_as(self.W)
         self.W[...] = eye[:, None, :]
 
+        self.H = self.X.new_zeros(batch_shape + (n_chan, n_freq, n_chan, self.n_taps))
+
         for epoch in range(n_iter):
 
             if self.checkpoints_iter is not None and epoch in self.checkpoints_iter:
-                self.checkpoints_list.append(self.X)
+                # self.checkpoints_list.append(self.X)
+                if epoch == 0:
+                    checkpoints_list.append(self.X)
+                else:
+                    X_checkpoint, _ = projection_back_from_input(
+                        self.X, X, X_bar, eps=self.eps
+                    )
+                    checkpoints_list.append(X_checkpoint)
 
+            
             # shape: (n_chan, n_freq, n_frames)
             # model takes as input a tensor of shape (..., n_frequencies, n_frames)
             weights = self.model(self.X)
@@ -304,6 +340,12 @@ class AuxIVA_T_ISS(torch.nn.Module):
             # Iterative Source Steering updates
             self.X, self.W = iss_updates(self.X, X_bar, self.W, weights, eps=self.eps)
 
+            """
+            self.X, self.W, self.H = iss_one_iter(
+                self.X, X_bar, self.W, self.H, self.model, eps=self.eps
+            )
+            self.X = demix_derev(X, X_bar, self.W, self.H)
+            """
         # projection back
         if proj_back:
             # Y_test, _ = projection_back(self.X, self.W, eps=self.eps)

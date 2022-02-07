@@ -10,3 +10,5 @@ dependencies:
   - scipy
   - sox
   - pip
+  - pip:
+      - fast-bss-eval

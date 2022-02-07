@@ -317,3 +317,12 @@ def eigh(
     )
 
     return return_type_eigh(eigenvalues, eigenvectors)
+
+
+def hankel_view(x: pt.Tensor, n_rows: int) -> pt.Tensor:
+    """return a view of x as a Hankel matrix"""
+    n_cols = x.shape[-1] - n_rows + 1
+    x_strides = x.stride()
+    return pt.as_strided(
+        x, size=x.shape[:-1] + (n_rows, n_cols), stride=x_strides + (x_strides[-1],)
+    )

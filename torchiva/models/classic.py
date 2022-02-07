@@ -5,8 +5,8 @@ from typing import Optional
 
 import torch as pt
 
-from .base import SourceModelBase
 from ..linalg import mag_sq
+from .base import SourceModelBase
 from .parameters import eps_models
 
 

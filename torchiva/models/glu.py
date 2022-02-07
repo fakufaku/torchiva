@@ -3,7 +3,8 @@ import torch.nn as nn
 
 
 from .base import SourceModelBase
-from ..linalg import mag_sq
+from ..linalg import mag_sq, divide
+
 
 class GLULayer(SourceModelBase):
     def __init__(
@@ -27,7 +28,7 @@ class GLULayer(SourceModelBase):
                     in_channels=n_input,
                     out_channels=pool_size * n_out,
                     kernel_size=kernel_size,
-                    padding="same",
+                    padding=kernel_size // 2,
                 )
             )
             lin_bn_layers.append(nn.BatchNorm1d(pool_size * n_out))
@@ -37,16 +38,12 @@ class GLULayer(SourceModelBase):
                     in_channels=n_input,
                     out_channels=pool_size * n_out,
                     kernel_size=kernel_size,
-                    padding="same",
+                    padding=kernel_size // 2,
                 )
             )
             gate_bn_layers.append(nn.BatchNorm1d(pool_size * n_out))
 
-            pool_layers.append(
-                nn.MaxPool1d(
-                    kernel_size=pool_size,
-                )
-            )
+            pool_layers.append(nn.MaxPool1d(kernel_size=pool_size,))
 
         self.lin_layers = nn.ModuleList(lin_layers)
         self.lin_bn_layers = nn.ModuleList(lin_bn_layers)
@@ -73,12 +70,13 @@ class GLULayer(SourceModelBase):
 
         return X
 
+
 class GLUMask(SourceModelBase):
     def __init__(
         self,
         n_input,
         n_output,
-        n_bottleneck,
+        n_hidden,
         n_layers=3,
         pool_size=2,
         kernel_size=3,
@@ -91,27 +89,22 @@ class GLUMask(SourceModelBase):
         self.norm_time = norm_time
         self.eps = eps
 
-        n_inputs = n_freq
-            
-
-        layers = [GLULayer(n_input, n_bottleneck, n_sublayers=1, pool_size=pool_size)]
+        layers = [GLULayer(n_input, n_hidden, n_sublayers=1, pool_size=pool_size)]
 
         for n in range(1, n_layers):
             layers += [
                 nn.Dropout(p=dropout_p),
-                GLULayer(
-                    n_bottleneck, n_bottleneck, n_sublayers=1, pool_size=pool_size
-                )
-                ]
+                GLULayer(n_hidden, n_hidden, n_sublayers=1, pool_size=pool_size),
+            ]
 
         layers.append(
-                nn.ConvTranspose1d(
-                    in_channels=n_bottleneck,
-                    out_channels=n_output,
-                    kernel_size=kernel_size,
-                    padding="same",
-                )
-                )
+            nn.ConvTranspose1d(
+                in_channels=n_hidden,
+                out_channels=n_output,
+                kernel_size=kernel_size,
+                padding=kernel_size // 2,
+            )
+        )
 
         self.layers = nn.Sequential(*layers)
 
@@ -125,22 +118,21 @@ class GLUMask(SourceModelBase):
 
         # we want to normalize the scale of the input signal
         g = torch.clamp(torch.mean(X_pwr, dim=(-2, -1), keepdim=True), min=self.eps)
-        X = bss.linalg.divide(X_pwr, g)
+        X = divide(X_pwr, g)
 
         # log-scale
         X = torch.log(1.0 + X)
 
         # apply all the layers
-        for idx, layer in enumerate(self.layers):
-            weights = layer(weights)
+        X = self.layers(X)
 
         # transform to weight by applying the sigmoid
-        weights = torch.sigmoid(weights)
+        X = torch.sigmoid(X)
 
         # add a small positive offset to the weights
-        weights = weights * (1 - self.eps) + self.eps
+        X = X * (1 - self.eps) + self.eps
 
         if self.norm_time:
             X = X / torch.sum(X, dim=-1, keepdim=True)
 
-        return weights.reshape(batch_shape + (n_freq, n_frames))
+        return X.reshape(batch_shape + (n_freq, n_frames))

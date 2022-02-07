@@ -3,13 +3,14 @@ import json
 import time
 from pathlib import Path
 
+import fast_bss_eval
 import numpy as np
 import torch
 import torch as pt
 import torchaudio
 
 # We will first validate the numpy backend
-import torchiva as bss
+import torchiva
 
 DATA_DIR = Path("bss_speech_dataset/data")
 DATA_META = DATA_DIR / "metadata.json"
@@ -43,19 +44,9 @@ if __name__ == "__main__":
 
     np.random.seed(0)
 
-    source_models = list(bss.models.source_models.keys())
+    source_models = list(torchiva.models.source_models.keys())
 
     parser = argparse.ArgumentParser(description="Separation example")
-    parser.add_argument(
-        "-p",
-        type=float,
-        help="Outer norm",
-    )
-    parser.add_argument(
-        "-q",
-        type=float,
-        help="Inner norm",
-    )
     parser.add_argument(
         "-r",
         "--rooms",
@@ -69,8 +60,8 @@ if __name__ == "__main__":
     parser.add_argument("--hop", type=int, help="STFT hop length size")
     parser.add_argument(
         "--window",
-        type=bss.Window,
-        choices=bss.window_types,
+        type=str,
+        choices=["hann", "hamming"],
         help="The STFT window type",
     )
     parser.add_argument(
@@ -87,8 +78,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dataset",
         type=Path,
-        default="wsj1_2345_db/wsj1_2_mix_m2/eval92",
+        default="wsj1_2345_db_6m2s/wsj1_2_mix_m6/eval92",
         help="Location of dataset",
+    )
+    parser.add_argument(
+        "--channels",
+        "-c",
+        type=int,
+        help="Number of channels to use",
+    )
+    parser.add_argument(
+        "--ref_reverb", action="store_true", help="Use reverberant signal as reference"
     )
     parser.add_argument("--snr", default=40, type=float, help="Signal-to-Noise Ratio")
     args = parser.parse_args()
@@ -114,16 +114,19 @@ if __name__ == "__main__":
 
         # the mixtures
         fn_mix = Path(rooms[room]["wav_dpath_mixed_reverberant"])
-        fn_mix = Path("").joinpath(*fn_mix.parts[-2:])
+        fn_mix = Path("").joinpath(*fn_mix.parts[-3:])
         fn_mix = args.dataset / fn_mix
         mix, fs_1 = torchaudio.load(fn_mix)
 
         mix_lst.append(mix)
 
         # the reference
-        ref_fns_list = rooms[room]["wav_dpath_image_anechoic"]
+        if args.ref_reverb:
+            ref_fns_list = rooms[room]["wav_dpath_image_reverberant"]
+        else:
+            ref_fns_list = rooms[room]["wav_dpath_image_anechoic"]
         ref_fns = [Path(p) for p in ref_fns_list]
-        ref_fns = [Path("").joinpath(*fn.parts[-2:]) for fn in ref_fns]
+        ref_fns = [Path("").joinpath(*fn.parts[-3:]) for fn in ref_fns]
 
         # now load the references
         audio_ref_list = []
@@ -143,6 +146,22 @@ if __name__ == "__main__":
     ref = make_batch_array(ref_lst, adjust="max")
     print(mix.shape, ref.shape)
 
+    n_src = ref.shape[-2]
+
+    if args.channels is None:
+        n_chan = mix.shape[-2]
+    elif args.channels >= n_src:
+        n_chan = args.channels
+        if n_chan < mix.shape[-2]:
+            mix = mix[..., :n_chan, :]
+    else:
+        raise ValueError(
+            f"The number of channels should be more than "
+            f"the number of sources (i.e., {n_src})"
+        )
+
+    print(f"Using {n_chan} channels to separate {n_src} sources.")
+
     if len(args.rooms) == 1:
         mix = mix[0]
         ref = ref[0]
@@ -150,13 +169,14 @@ if __name__ == "__main__":
     # STFT parameters
     if args.hop is None:
         args.hop = args.n_fft // 2
-    stft = bss.STFT(args.n_fft, hop_length=args.hop, window=args.window)
+    stft = torchiva.STFT(args.n_fft, hop_length=args.hop, window=args.window)
 
     # convert to pytorch tensor if necessary
     print(f"Is GPU available ? {pt.cuda.is_available()}")
     device = pt.device("cuda:0" if pt.cuda.is_available() else "cpu")
     mix = mix.to(device)
     ref = ref.to(device)
+    stft = stft.to(device)
 
     # STFT
     X = stft(mix)  # copy for back projection (numpy/torch compatible)
@@ -164,30 +184,18 @@ if __name__ == "__main__":
     t1 = time.perf_counter()
 
     # Separation
-    bss_algo = bss.AuxIVA_T_ISS(
-        model=bss.models.source_models[args.source_model],
-        n_taps=10,
-        n_delay=1,
+    bss_algo = torchiva.OverISS_T(
+        model=torchiva.models.source_models[args.source_model],
+        n_taps=5,
+        n_delay=3,
         proj_back=True,
     )
 
-    Y = bss_algo(X, n_iter=args.n_iter)
+    Y = bss_algo(X, n_iter=args.n_iter, n_src=2)
 
     t2 = time.perf_counter()
 
     print(f"Separation time: {t2 - t1:.3f} s")
-
-    # Projection back
-    """
-    if args.p is not None:
-        Y = bss.minimum_distortion(Y, X[..., REF_MIC, :, :], p=args.p, q=args.q)
-    else:
-        Y = bss.projection_back(Y, X[..., REF_MIC, :, :])
-
-    t3 = time.perf_counter()
-
-    print(f"Proj. back time: {t3 - t2:.3f} s")
-    """
 
     # iSTFT
     y = stft.inv(Y)  # (n_samples, n_channels)
@@ -198,7 +206,7 @@ if __name__ == "__main__":
     m = min([ref.shape[-1], y.shape[-1]])
 
     # scale invaliant metric
-    sdr, sir, sar, perm = bss.metrics.si_bss_eval(ref[..., :m], y[..., :m])
+    sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[..., :m], y[..., :m])
 
     t5 = time.perf_counter()
 
