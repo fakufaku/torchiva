@@ -30,6 +30,7 @@ References
 from typing import List, NoReturn, Optional, Tuple
 
 import torch
+from torch.utils.checkpoint import checkpoint as torch_checkpoint
 
 from .linalg import divide, hankel_view, hermite, mag_sq, multiply
 from .models import LaplaceModel
@@ -235,10 +236,20 @@ def over_iss_t_one_iter(Y, X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3):
     return Y, W, H, J
 
 
-def projection_back(Y, W, J=None, ref_mic=0, eps=1e-6):
+def over_iss_t_one_iter_dmc(X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3):
+
+    Y = demix_derev(X, X_bar, W, H)
+
+    Y, W, H, J = over_iss_t_one_iter(
+        Y, X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=eps
+    )
+
+    return W, H, J
+
+
+def projection_back_weights(W, J=None, ref_mic=0, eps=1e-6):
     # projection back (not efficient yet)
-    n_src, n_freq, n_frames = Y.shape[-3:]
-    n_chan = W.shape[-1]
+    n_src, n_freq, n_chan = W.shape[-3:]
 
     eye = torch.eye(n_src).type_as(W)
 
@@ -250,47 +261,6 @@ def projection_back(Y, W, J=None, ref_mic=0, eps=1e-6):
         B = torch.einsum("...sfc,...cfk->...sfk", W2, J)
         B = B + W1
 
-        """
-        B_inv = torch.linalg.inv(B.transpose(-3, -2)).transpose(-3, -2)
-        B_inv_W2 = torch.einsum("...sfc,...cfk->...sfk", B_inv, W2)
-        J_B_inv = torch.einsum("...kfs,...sfc->...kfc", J, B_inv)
-        J_B_inv_W2 = torch.einsum("...kfs,...sfc->...kfc", J_B_inv, W2)
-        eye2 = torch.broadcast_to(
-            torch.eye(n_chan - n_src).type_as(J)[None, :, None, :],
-            (J.shape[0], n_chan - n_src, n_freq, n_chan - n_src),
-        )
-        W_full_inv = torch.cat(
-            (
-                torch.cat((B_inv, B_inv_W2), dim=-1),
-                torch.cat((J_B_inv, J_B_inv_W2 - eye2), dim=-1),
-            ),
-            dim=-3,
-        )
-
-        # create full demixing matrix
-        W_full = torch.cat(
-            (
-                W,
-                torch.cat((J, -eye2), dim=-1),
-            ),
-            dim=-3,
-        )
-
-        # now test
-        WW = torch.einsum("...sfc,...cfk->...sfk", W_full, W_full_inv)
-        EE = WW - torch.eye(n_chan).type_as(WW)[..., :, None, :]
-        error = abs(EE).max()
-        print(error)
-        print(EE[0, :, 100, :])
-
-        if ref_mic < n_src:
-            a = B_inv[..., [ref_mic], :, :]
-        else:
-            a = J_B_inv[..., [ref_mic - n_src], :, :]
-        a = a.transpose(-3, -1)
-        print(a.shape, Y.shape)
-        """
-
         if ref_mic < n_src:
             rhs = eye[:, [ref_mic]]
         else:
@@ -300,20 +270,16 @@ def projection_back(Y, W, J=None, ref_mic=0, eps=1e-6):
         BT = torch.einsum("...sfc->...fcs", B)
         a = torch.linalg.solve(BT + eps * eye, rhs)
         a = a.transpose(-3, -2)
-        Y = Y * a
 
     else:
         # determined case
-
-        # projection back (not efficient yet)
         e1 = eye[..., :, [ref_mic]]
         WT = W.transpose(-3, -2)
         WT = WT.transpose(-2, -1)
         a = torch.linalg.solve(WT + eps * eye, e1)
         a = a.transpose(-3, -2)
-        Y = Y * a
 
-    return Y, a
+    return a
 
 
 class OverISS_T(torch.nn.Module):
@@ -325,6 +291,7 @@ class OverISS_T(torch.nn.Module):
         n_iter: Optional[int] = 20,
         proj_back: Optional[bool] = True,
         ref_mic: Optional[bool] = 0,
+        use_dmc: Optional[bool] = False,
         eps: Optional[float] = None,
     ):
         super().__init__()
@@ -334,14 +301,12 @@ class OverISS_T(torch.nn.Module):
         self.n_iter = n_iter
         self.proj_back = proj_back
         self.ref_mic = ref_mic
+        self.use_dmc = use_dmc
 
-        self.Y = None
-        self.W = None
-        self.J = None
-        self.W_inv = None
-        self.X = None
-        self.X_hankel = None
-        self.Z = None
+        # the different parts of the demixing matrix
+        self.W = None  # target sources
+        self.H = None  # reverb for target sources
+        self.J = None  # background in overdetermined case
 
         if eps is None:
             self.eps = eps_models["laplace"]
@@ -365,6 +330,7 @@ class OverISS_T(torch.nn.Module):
         n_taps: Optional[int] = None,
         n_delay: Optional[int] = None,
         proj_back: Optional[bool] = None,
+        use_dmc: Optional[bool] = None,
         checkpoints_iter: Optional[List] = None,
         checkpoints_list: Optional[List] = None,
     ) -> torch.Tensor:
@@ -402,13 +368,15 @@ class OverISS_T(torch.nn.Module):
         if proj_back is None:
             proj_back = self.proj_back
 
+        if use_dmc is None:
+            use_dmc = self.use_dmc
+
         self.checkpoints_iter = checkpoints_iter
 
         # shape (..., n_chan, n_freq, n_taps + n_delay + 1, block_size)
-        self.X = X
         X_pad = torch.nn.functional.pad(X, (self.n_taps + self.n_delay, 0))
-        self.X_hankel = hankel_view(X_pad, self.n_taps + self.n_delay + 1)
-        X_bar = self.X_hankel[..., : -self.n_delay - 1, :]  # shape (c, f, t, b)
+        X_hankel = hankel_view(X_pad, self.n_taps + self.n_delay + 1)
+        X_bar = X_hankel[..., : -self.n_delay - 1, :]  # shape (c, f, t, b)
 
         if is_overdet:
             C_XX = torch.einsum("...cfn,...dfn->...cfd", X, X.conj()) / X.shape[-1]
@@ -419,47 +387,65 @@ class OverISS_T(torch.nn.Module):
             C_XX, C_XbarX = None, None
 
         # the demixing matrix
-        self.W = X.new_zeros(batch_shape + (n_src, n_freq, n_chan))
+        W = X.new_zeros(batch_shape + (n_src, n_freq, n_chan))
         if is_overdet:
-            self.J = X.new_zeros(batch_shape + (n_chan - n_src, n_freq, n_src))
+            J = X.new_zeros(batch_shape + (n_chan - n_src, n_freq, n_src))
         else:
-            self.J = None
-        eye = torch.clamp(torch.eye(n_src, n_chan), min=self.eps).type_as(self.W)
-        self.W[...] = eye[:, None, :]
+            J = None
+        eye = torch.clamp(torch.eye(n_src, n_chan), min=self.eps).type_as(W)
+        W[...] = eye[:, None, :]
 
-        self.H = X.new_zeros(batch_shape + (n_src, n_freq, n_chan, self.n_taps))
+        H = X.new_zeros(batch_shape + (n_src, n_freq, n_chan, self.n_taps))
 
-        self.Y = demix_derev(X, X_bar, self.W, self.H)
+        Y = demix_derev(X, X_bar, W, H)
 
         for epoch in range(n_iter):
 
             if self.checkpoints_iter is not None and epoch in self.checkpoints_iter:
                 # self.checkpoints_list.append(X)
                 if epoch == 0:
-                    checkpoints_list.append(self.Y.clone())
+                    checkpoints_list.append(Y.clone().detach())
                 else:
-                    Y_checkpoint, _ = projection_back(
-                        self.Y, self.W, J=self.J, eps=self.eps, ref_mic=self.ref_mic
+                    a = projection_back_weights(
+                        W, J=J, eps=self.eps, ref_mic=self.ref_mic
                     )
-                    checkpoints_list.append(Y_checkpoint)
+                    checkpoints_list.append((Y * a).detach())
 
-            self.Y, self.W, self.H, self.J = over_iss_t_one_iter(
-                self.Y,
-                X,
-                X_bar,
-                C_XX,
-                C_XbarX,
-                self.W,
-                self.H,
-                self.J,
-                self.model,
-                eps=self.eps,
-            )
+            if use_dmc:
+                W, H, J = torch_checkpoint(
+                    over_iss_t_one_iter_dmc,
+                    X,
+                    X_bar,
+                    C_XX,
+                    C_XbarX,
+                    W,
+                    H,
+                    J,
+                    self.model,
+                    self.eps,
+                    preserve_rng_state=True,
+                )
+            else:
+                Y, W, H, J = over_iss_t_one_iter(
+                    Y,
+                    X,
+                    X_bar,
+                    C_XX,
+                    C_XbarX,
+                    W,
+                    H,
+                    J,
+                    self.model,
+                    eps=self.eps,
+                )
+                # Y = demix_derev(X, X_bar, W, H)
 
         # projection back
         if proj_back:
-            self.Y, _ = projection_back(
-                self.Y, self.W, J=self.J, eps=self.eps, ref_mic=self.ref_mic
-            )
+            a = projection_back_weights(W, J=J, eps=self.eps, ref_mic=self.ref_mic)
+            if use_dmc:
+                Y = a * demix_derev(X, X_bar, W, H)
+            else:
+                Y = a * Y
 
-        return self.Y
+        return Y
