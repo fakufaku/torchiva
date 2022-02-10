@@ -1,9 +1,8 @@
 import torch
 import torch.nn as nn
 
-
+from ..linalg import divide, mag_sq
 from .base import SourceModelBase
-from ..linalg import mag_sq, divide
 
 
 class GLULayer(SourceModelBase):
@@ -43,7 +42,11 @@ class GLULayer(SourceModelBase):
             )
             gate_bn_layers.append(nn.BatchNorm1d(pool_size * n_out))
 
-            pool_layers.append(nn.MaxPool1d(kernel_size=pool_size,))
+            pool_layers.append(
+                nn.MaxPool1d(
+                    kernel_size=pool_size,
+                )
+            )
 
         self.lin_layers = nn.ModuleList(lin_layers)
         self.lin_bn_layers = nn.ModuleList(lin_bn_layers)
@@ -135,4 +138,4 @@ class GLUMask(SourceModelBase):
         if self.norm_time:
             X = X / torch.sum(X, dim=-1, keepdim=True)
 
-        return X.reshape(batch_shape + (n_freq, n_frames))
+        return X.reshape(batch_shape + X.shape[-2:])

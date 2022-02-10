@@ -32,7 +32,8 @@ from typing import List, NoReturn, Optional, Tuple
 import torch
 from torch.utils.checkpoint import checkpoint as torch_checkpoint
 
-from .linalg import divide, hankel_view, hermite, mag_sq, multiply
+from .linalg import (divide, hankel_view, hermite, mag_sq, multiply,
+                     solve_loaded)
 from .models import LaplaceModel
 from .parameters import eps_models
 
@@ -121,6 +122,19 @@ def iss_block_update_type_3(
     return v
 
 
+def overiss_background_update(
+    src: int,
+    X: torch.Tensor,
+    X_bar: torch.Tensor,
+    weights: torch.Tensor,
+    eps: Optional[float] = 1e-3,
+) -> torch.Tensor:
+    """
+    ISS style update for the background part in overdet ISS
+    """
+    pass
+
+
 def iss_updates_with_H(
     X: torch.Tensor,
     X_bar: torch.Tensor,
@@ -193,7 +207,7 @@ def iss_updates_with_H(
     return X, W, H
 
 
-def background_update(W, H, J, X, C_XX, C_XbarX):
+def background_update(W, H, J, X, C_XX, C_XbarX, eps=1e-5):
     """
     Recomputes J based on W, H, and C_XX = E[X X^H] and C_XbarX = E[ X_bar X^H ]
     """
@@ -202,7 +216,7 @@ def background_update(W, H, J, X, C_XX, C_XbarX):
     A1 = torch.einsum("...sfc,...cfd->...fsd", W, C_XX)
     A2 = torch.einsum("...sfdt,...dtfc->...fsc", H, C_XbarX)
     A = A1 + A2  # (..., n_freq, n_src, n_chan)
-    J_H = torch.linalg.solve(A[..., :n_src], A[..., n_src:])
+    J_H = solve_loaded(A[..., :n_src], A[..., n_src:], load=eps)
     # J = J_H.conj().permute([-1, -3, -2])
     J = J_H.conj().moveaxis(-1, -3)  # (..., n_chan - n_src, n_freq, n_src)
 
@@ -225,7 +239,7 @@ def over_iss_t_one_iter(Y, X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3):
 
     # Update the background part
     if J is not None:
-        J = background_update(W, H, J, X, C_XX, C_XbarX)
+        J = background_update(W, H, J, X, C_XX, C_XbarX, eps=eps)
         Z = demix_background(X, J)  # Z is None if J is None
     else:
         Z = None
@@ -438,7 +452,6 @@ class OverISS_T(torch.nn.Module):
                     self.model,
                     eps=self.eps,
                 )
-                # Y = demix_derev(X, X_bar, W, H)
 
         # projection back
         if proj_back:
