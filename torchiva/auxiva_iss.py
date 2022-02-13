@@ -111,12 +111,11 @@ def spatial_model_update_ip2(Xo: pt.Tensor, weights: pt.Tensor):
 
     V = []
     for k in [0, 1]:
-        # (n_batch, n_chan, n_freq, n_frames)
-        Xr = multiply(weights[..., k : k + 1, :, :], Xo)
         # shape: (n_batch, n_freq, n_chan, n_chan)
-        Xoo = Xo.transpose(-2, -1).transpose(-3, -1)
-        Vloc = bmm(Xr.transpose(-3, -2), pt.conj(Xoo))
-        Vloc = Vloc / Xr.shape[-1]
+        Vloc = pt.einsum(
+            "...fn,...cfn,...dfn->...fcd", weights[..., k, :, :], Xo, Xo.conj()
+        )
+        Vloc = Vloc / Xo.shape[-1]
         # make sure V is hermitian symmetric
         Vloc = 0.5 * (Vloc + hermite(Vloc))
         V.append(Vloc)
@@ -127,14 +126,15 @@ def spatial_model_update_ip2(Xo: pt.Tensor, weights: pt.Tensor):
     eigvec = pt.flip(eigvec, dims=(-1,))
 
     for k in [0, 1]:
-        scale = mag(
-            bmm(pt.conj(eigvec[..., None, :, k]), bmm(V[k], eigvec[..., :, None, k]))
-        )
+        scale = abs(pt.conj(eigvec[..., None, :, k]) @ (V[k] @ eigvec[..., :, None, k]))
         eigvec[..., :, k : k + 1] = divide(
-            eigvec[..., :, k : k + 1], pt.sqrt(pt.clamp(scale, min=1e-7)), eps=1e-7,
+            eigvec[..., :, k : k + 1],
+            pt.sqrt(pt.clamp(scale, min=1e-7)),
+            eps=1e-7,
         )
 
-    X = bmm(hermite(eigvec), Xo.transpose(-3, -2)).transpose(-3, -2)
+    # X = bmm(hermite(eigvec), Xo.transpose(-3, -2)).transpose(-3, -2)
+    X = pt.einsum("...fcd,...dfn->...cfn", hermite(eigvec), Xo)
 
     return X
 
@@ -142,7 +142,7 @@ def spatial_model_update_ip2(Xo: pt.Tensor, weights: pt.Tensor):
 def auxiva_iss(
     X: pt.Tensor,
     n_iter: Optional[int] = 20,
-    model: Optional[SourceModelBase] = None,
+    model: Optional[callable] = None,
     eps: Optional[float] = None,
     two_chan_ip2: Optional[bool] = False,
     checkpoints_iter: Optional[List[int]] = None,

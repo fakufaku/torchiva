@@ -138,4 +138,8 @@ class GLUMask(SourceModelBase):
         if self.norm_time:
             X = X / torch.sum(X, dim=-1, keepdim=True)
 
-        return X.reshape(batch_shape + X.shape[-2:])
+        X = X.reshape(batch_shape + X.shape[-2:])
+
+        X = torch.broadcast_to(X, batch_shape + (n_freq, n_frames))
+
+        return X

@@ -178,17 +178,28 @@ if __name__ == "__main__":
     ref = ref.to(device)
     stft = stft.to(device)
 
+    mix = mix[None, ...]
+    ref = ref[None, ...]
+
     # STFT
     X = stft(mix)  # copy for back projection (numpy/torch compatible)
 
     t1 = time.perf_counter()
 
     # Separation
-    bss_algo = torchiva.OverISS_T(
+    bss_algo = torchiva.OverISS_T_2(
         model=torchiva.models.source_models[args.source_model],
+        # model=torchiva.models.GLUMask(
+        # n_input=args.n_fft // 2 + 1, n_output=1, n_hidden=128
+        # )
+        # .to(device)
+        # .requires_grad_(),
         n_taps=0,
         n_delay=0,
         proj_back=True,
+        verbose=True,
+        eps=1e-5,
+        use_dmc=True,
     )
 
     Y = bss_algo(X, n_iter=args.n_iter, n_src=2)

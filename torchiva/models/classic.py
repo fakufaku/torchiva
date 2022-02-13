@@ -18,6 +18,9 @@ class LaplaceModel(SourceModelBase):
         # just so that training works
         self.fake = pt.nn.Parameter(pt.zeros(1))
 
+    def cost(self, Y):
+        return pt.linalg.norm(Y, dim=-2).mean(dim=-1).sum(dim=-1)
+
     def forward(self, X: pt.Tensor):
         # sum power over frequencies
         if X.dtype in [pt.complex64, pt.complex128]:

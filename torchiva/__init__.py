@@ -9,7 +9,7 @@ from .iss_t_rev import iss_t_rev
 from .models import GaussModel, LaplaceModel, NMFModel, source_models
 from .nn import SepAlgo
 from .overiva import auxiva_ip, overiva
-from .overiva_iss import OverISS_T
+from .overiva_iss import OverISS_T, OverISS_T_2
 from .preprocessing import filter_dc
 from .scaling import (minimum_distortion, minimum_distortion_l2_phase,
                       projection_back)

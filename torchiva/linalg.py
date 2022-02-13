@@ -9,6 +9,7 @@ complex_types = [pt.complex64, pt.complex128]
 
 
 def divide(num, denom, eps=1e-7):
+    """
     if num.dtype in complex_types and denom.dtype not in complex_types:
         return pt.view_as_complex(
             pt.view_as_real(num) / pt.clamp(denom[..., None], min=eps)
@@ -21,6 +22,8 @@ def divide(num, denom, eps=1e-7):
         raise NotImplementedError(
             f"Division of {num.dtype} by {denom.dtype} is not implemented"
         )
+    """
+    return num / pt.clamp(denom, min=eps)
 
 
 def multiply(tensor1: pt.Tensor, tensor2: pt.Tensor):

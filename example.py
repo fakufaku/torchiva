@@ -4,8 +4,8 @@ import time
 from pathlib import Path
 
 import numpy as np
-import torch as pt
 import torch
+import torch as pt
 import torchaudio
 
 # We will first validate the numpy backend
@@ -115,7 +115,7 @@ if __name__ == "__main__":
 
         # the mixtures
         fn_mix = Path(rooms[room]["wav_dpath_mixed_reverberant"])
-        fn_mix = Path("").joinpath(*fn_mix.parts[-2:])
+        fn_mix = Path("").joinpath(*fn_mix.parts[-3:])
         fn_mix = args.dataset / fn_mix
         mix, fs_1 = torchaudio.load(fn_mix)
 
@@ -124,7 +124,7 @@ if __name__ == "__main__":
         # the reference
         ref_fns_list = rooms[room]["wav_dpath_image_reverberant"]
         ref_fns = [Path(p) for p in ref_fns_list]
-        ref_fns = [Path("").joinpath(*fn.parts[-2:]) for fn in ref_fns]
+        ref_fns = [Path("").joinpath(*fn.parts[-3:]) for fn in ref_fns]
 
         # now load the references
         audio_ref_list = []
@@ -158,6 +158,7 @@ if __name__ == "__main__":
     device = pt.device("cuda:0" if pt.cuda.is_available() else "cpu")
     mix = mix.to(device)
     ref = ref.to(device)
+    stft = stft.to(device)
 
     # STFT
     X = stft(mix)  # copy for back projection (numpy/torch compatible)
@@ -166,7 +167,10 @@ if __name__ == "__main__":
 
     # Separation
     Y = bss.auxiva_iss(
-        X, n_iter=args.n_iter, model=bss.models.source_models[args.source_model]
+        X,
+        n_iter=args.n_iter,
+        model=bss.models.source_models[args.source_model],
+        two_chan_ip2=True,
     )
 
     t2 = time.perf_counter()
