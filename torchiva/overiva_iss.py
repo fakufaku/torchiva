@@ -99,14 +99,7 @@ def reordered_solve(A, b):
 
 
 def compute_cost(model, W, J, Y, Z):
-    n_frames = Y.shape[-1]
-
     target_cost = model.cost(Y)
-
-    if Z is None:
-        noise_cost = 0.0
-    else:
-        noise_cost = torch.sum(abs(Z).square(), dim=(-3, -2, -1)) / n_frames
 
     WW = make_demix(W, J)
     _, ld = torch.linalg.slogdet(WW.transpose(-3, -2))
@@ -569,53 +562,51 @@ def overiss2_updates_with_H(
     return Y, Z, W, H, J, A
 
 
-def overiss2_one_iter(Y, Z, X, X_bar, C_XX, C_XbarX, W, H, J, A, model, eps=1e-3):
-    # shape: (n_chan, n_freq, n_frames)
-    # model takes as input a tensor of shape (..., n_frequencies, n_frames)
-    weights = model(Y)
-
+def rescale(Y, W, H, A=None, eps=1e-5):
     # we normalize the sources to have source to have unit variance prior to
     # computing the model
-    """
     g = torch.clamp(torch.mean(mag_sq(Y), dim=(-2, -1), keepdim=True), min=eps)
     g_sqrt = torch.sqrt(g)
     Y = Y / (g_sqrt + eps)
     W = W / (g_sqrt + eps)
     H = H / (g_sqrt[..., None] + eps)
-    A = A * g_sqrt.transpose(-3, -1)
-    weights = weights * g
-    """
+    if A is not None:
+        A = A * g_sqrt.transpose(-3, -1)
+
+    return Y, W, H, A, g
+
+
+def overiss2_one_iter(Y, Z, X, X_bar, C_XX, C_XbarX, W, H, J, A, model, eps=1e-3):
+
+    Y, W, H, A, g = rescale(Y, W, H, A, eps)
+
+    # shape: (n_chan, n_freq, n_frames)
+    # model takes as input a tensor of shape (..., n_frequencies, n_frames)
+    weights = model(Y)
 
     # Iterative Source Steering updates
     Y, Z, W, H, J, A = overiss2_updates_with_H(
         Y, X, X_bar, W, H, A, weights, J=J, Z=Z, eps=eps
     )
 
-    return Y, Z, W, H, J, A
+    return Y, Z, W, H, J, A, g
 
 
 def overiss2_one_iter_dmc(X, X_bar, C_XX, C_XbarX, W, H, J, A, model, eps=1e-3):
     Y = demix_derev(X, X_bar, W, H)
     Z = demix_background(X, J)
-    Y, Z, W, H, J, A = overiss2_one_iter(
+    Y, Z, W, H, J, A, g = overiss2_one_iter(
         Y, Z, X, X_bar, C_XX, C_XbarX, W, H, J, A, model, eps
     )
-    return W, H, J, A
+    return W, H, J, A, g
 
 
 def over_iss_t_one_iter(Y, X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3):
+    Y, W, H, _, g = rescale(Y, W, H, None, eps)
+
     # shape: (n_chan, n_freq, n_frames)
     # model takes as input a tensor of shape (..., n_frequencies, n_frames)
     weights = model(Y)
-
-    # we normalize the sources to have source to have unit variance prior to
-    # computing the model
-    g = torch.clamp(torch.mean(mag_sq(Y), dim=(-2, -1), keepdim=True), min=eps)
-    g_sqrt = torch.sqrt(g)
-    Y = divide(Y, g_sqrt, eps=eps)
-    W = divide(W, g_sqrt, eps=eps)
-    H = divide(H, g_sqrt[..., None], eps=eps)
-    weights = weights * g
 
     # Update the background part
     if J is not None:
@@ -627,18 +618,18 @@ def over_iss_t_one_iter(Y, X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3):
     # Iterative Source Steering updates
     Y, W, H = iss_updates_with_H(Y, X_bar, W, H, weights, Z=Z, J=J, eps=eps)
 
-    return Y, W, H, J
+    return Y, W, H, J, g
 
 
 def over_iss_t_one_iter_dmc(X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3):
 
     Y = demix_derev(X, X_bar, W, H)
 
-    Y, W, H, J = over_iss_t_one_iter(
+    Y, W, H, J, g = over_iss_t_one_iter(
         Y, X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=eps
     )
 
-    return W, H, J
+    return W, H, J, g
 
 
 def projection_back_weights(W, J=None, ref_mic=0, eps=1e-6):
@@ -800,6 +791,8 @@ class OverISS_T(torch.nn.Module):
 
         Y = demix_derev(X, X_bar, W, H)
 
+        rescaled_cost = 0.0
+
         for epoch in range(n_iter):
 
             if self.checkpoints_iter is not None and epoch in self.checkpoints_iter:
@@ -812,13 +805,8 @@ class OverISS_T(torch.nn.Module):
                     )
                     checkpoints_list.append((Y * a).detach())
 
-            if self.verbose and hasattr(self.model, "cost"):
-                Z = demix_background(X, J)
-                cost = compute_cost(self.model, W, J, Y, Z)
-                print(f"Epoch {epoch}: {cost}")
-
             if use_dmc:
-                W, H, J = torch_checkpoint(
+                W, H, J, g = torch_checkpoint(
                     over_iss_t_one_iter_dmc,
                     X,
                     X_bar,
@@ -832,7 +820,7 @@ class OverISS_T(torch.nn.Module):
                     preserve_rng_state=True,
                 )
             else:
-                Y, W, H, J = over_iss_t_one_iter(
+                Y, W, H, J, g = over_iss_t_one_iter(
                     Y,
                     X,
                     X_bar,
@@ -844,6 +832,14 @@ class OverISS_T(torch.nn.Module):
                     self.model,
                     eps=self.eps,
                 )
+
+            # keep track of rescaling cost
+            rescaled_cost = rescaled_cost - n_freq * torch.sum(torch.log(g))
+
+            if self.verbose and hasattr(self.model, "cost"):
+                Z = demix_background(X, J)
+                cost = compute_cost(self.model, W, J, Y, Z) + rescaled_cost
+                print(f"Epoch {epoch}: {cost.sum()}")
 
         # projection back
         if proj_back:
@@ -984,6 +980,8 @@ class OverISS_T_2(torch.nn.Module):
             cost = compute_cost(self.model, W, J, Y, Z)
             print(f"Epoch {-1}: {cost}")
 
+        rescaled_cost = 0.0
+
         for epoch in range(n_iter):
 
             if self.checkpoints_iter is not None and epoch in self.checkpoints_iter:
@@ -995,7 +993,7 @@ class OverISS_T_2(torch.nn.Module):
                     checkpoints_list.append((Y * a).detach())
 
             if use_dmc:
-                W, H, J, A = torch_checkpoint(
+                W, H, J, A, g = torch_checkpoint(
                     overiss2_one_iter_dmc,
                     X,
                     X_bar,
@@ -1010,13 +1008,19 @@ class OverISS_T_2(torch.nn.Module):
                     preserve_rng_state=True,
                 )
             else:
-                Y, Z, W, H, J, A = overiss2_one_iter(
+                Y, Z, W, H, J, A, g = overiss2_one_iter(
                     Y, Z, X, X_bar, C_XX, C_XbarX, W, H, J, A, self.model, eps=self.eps
                 )
 
+            # keep track of rescaling cost
+            rescaled_cost = rescaled_cost - n_freq * torch.sum(torch.log(g))
+
             if self.verbose and hasattr(self.model, "cost"):
-                cost = compute_cost(self.model, W, J, Y, Z)
-                print(f"Epoch {epoch}: {cost}")
+                cost = compute_cost(self.model, W, J, Y, Z) + rescaled_cost
+                print(f"Epoch {epoch}: {cost.sum()}")
+
+        if self.verbose:
+            print("Check matrix inverse", check_struct_inv_pair(W, J, A))
 
         # projection back
         if proj_back:

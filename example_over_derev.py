@@ -91,6 +91,12 @@ if __name__ == "__main__":
         "--ref_reverb", action="store_true", help="Use reverberant signal as reference"
     )
     parser.add_argument("--snr", default=40, type=float, help="Signal-to-Noise Ratio")
+    parser.add_argument(
+        "--v2", action="store_true", help="Use version 2 (matrix inverse-free)."
+    )
+    parser.add_argument(
+        "--taps", "-t", type=int, default=0, help="Number of dereverberation taps."
+    )
     args = parser.parse_args()
 
     metafilename = args.dataset / "mixinfo_noise.json"
@@ -169,6 +175,10 @@ if __name__ == "__main__":
     # STFT parameters
     if args.hop is None:
         args.hop = args.n_fft // 2
+        n_delay = 1
+    else:
+        n_delay = args.n_fft // args.hop - 1
+
     stft = torchiva.STFT(args.n_fft, hop_length=args.hop, window=args.window)
 
     # convert to pytorch tensor if necessary
@@ -178,29 +188,45 @@ if __name__ == "__main__":
     ref = ref.to(device)
     stft = stft.to(device)
 
-    mix = mix[None, ...]
-    ref = ref[None, ...]
+    # infer number of sources from reference file
+    n_src = ref.shape[1]
 
     # STFT
     X = stft(mix)  # copy for back projection (numpy/torch compatible)
 
     t1 = time.perf_counter()
 
-    # Separation
-    bss_algo = torchiva.OverISS_T_2(
-        model=torchiva.models.source_models[args.source_model],
-        # model=torchiva.models.GLUMask(
-        # n_input=args.n_fft // 2 + 1, n_output=1, n_hidden=128
-        # )
-        # .to(device)
-        # .requires_grad_(),
-        n_taps=0,
-        n_delay=0,
-        proj_back=True,
-        verbose=True,
-        eps=1e-5,
-        use_dmc=True,
+    model = torchiva.models.source_models[args.source_model]
+    """
+    model=torchiva.models.GLUMask(
+    n_input=args.n_fft // 2 + 1, n_output=1, n_hidden=128
     )
+    .to(device)
+    .requires_grad_(),
+    """
+    use_dmc = False
+
+    # Separation
+    if args.v2:
+        bss_algo = torchiva.OverISS_T_2(
+            model=model,
+            n_taps=args.taps,
+            n_delay=n_delay,
+            proj_back=True,
+            verbose=True,
+            eps=1e-15,
+            use_dmc=True,
+        )
+    else:
+        bss_algo = torchiva.OverISS_T(
+            model=model,
+            n_taps=args.taps,
+            n_delay=n_delay,
+            proj_back=True,
+            verbose=True,
+            eps=1e-15,
+            use_dmc=True,
+        )
 
     Y = bss_algo(X, n_iter=args.n_iter, n_src=2)
 
