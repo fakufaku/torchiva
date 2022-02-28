@@ -114,6 +114,28 @@ def inv_loaded(A: pt.Tensor, load=1e-6):
     return pt.linalg.inv(A + load_factor * eye)
 
 
+def inv_2x2(W: pt.Tensor, eps=1e-6):
+
+    if W.shape[-1] != W.shape[-2] or W.shape[-1] != 2:
+        raise ValueError("This function is specialized for 2x2 matrices")
+
+    W11 = W[..., 0, 0]
+    W21 = W[..., 1, 0]
+    W12 = W[..., 0, 1]
+    W22 = W[..., 1, 1]
+
+    det = W11 * W22 - W12 * W21
+    det = pt.clamp(det, min=eps)
+
+    adjoint = pt.stack(
+        pt.stack((W22, -W12), dim=-1), pt.stack((-W21, W11), dim=-1), dim=-1
+    )
+
+    W_inv = adjoint / det
+
+    return W_inv
+
+
 def solve(
     b: pt.Tensor, A: pt.Tensor, out: Optional[pt.Tensor] = None
 ) -> Tuple[pt.Tensor, pt.Tensor]:

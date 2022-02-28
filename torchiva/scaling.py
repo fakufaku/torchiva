@@ -55,7 +55,7 @@ def projection_back(Y: pt.Tensor, ref: pt.Tensor) -> NoReturn:
     A_flat = A.reshape((-1, n_chan, n_chan))
     b_flat = b.reshape((-1, n_chan, b.shape[-1]))
 
-    dload = 1e-7 * pt.eye(n_chan, dtype=A_flat.dtype, device=A_flat.device)
+    dload = 1e-5 * pt.eye(n_chan, dtype=A_flat.dtype, device=A_flat.device)
     c = pt.linalg.solve(A_flat + dload, b_flat)
 
     return (Y * c.reshape(shape + (n_freq, n_chan, 1))).transpose(-3, -2)

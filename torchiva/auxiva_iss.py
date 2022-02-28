@@ -3,7 +3,7 @@ from typing import List, Optional
 import torch as pt
 
 from .base import SourceModelBase
-from .linalg import bmm, divide, eigh, hermite, mag, mag_sq, multiply
+from .linalg import bmm, divide, eigh, hermite, inv_2x2, mag, mag_sq, multiply
 from .models import LaplaceModel
 from .parameters import eps_models
 
@@ -133,10 +133,13 @@ def spatial_model_update_ip2(Xo: pt.Tensor, weights: pt.Tensor):
             eps=1e-7,
         )
 
+    # W = hermite(eigvec)
+    # A = inv_2x2(W)
+
     # X = bmm(hermite(eigvec), Xo.transpose(-3, -2)).transpose(-3, -2)
     X = pt.einsum("...fcd,...dfn->...cfn", hermite(eigvec), Xo)
 
-    return X
+    return X  # , W, A
 
 
 def auxiva_iss(
@@ -145,6 +148,7 @@ def auxiva_iss(
     model: Optional[callable] = None,
     eps: Optional[float] = None,
     two_chan_ip2: Optional[bool] = False,
+    proj_back: Optional[bool] = False,
     checkpoints_iter: Optional[List[int]] = None,
     checkpoints_list: Optional[List] = None,
 ) -> pt.Tensor:
@@ -181,6 +185,11 @@ def auxiva_iss(
 
     if n_chan == 2 and two_chan_ip2:
         Xo = X
+
+    if proj_back:
+        W = X.new_zeros((n_freq, n_chan, n_chan))
+        A = X.new_zeros((n_freq, n_chan, n_chan))
+        W[:] = pt.eye(n_chan).type_as(W)
 
     for epoch in range(n_iter):
 

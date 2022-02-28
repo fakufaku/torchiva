@@ -678,7 +678,7 @@ class OverISS_T(torch.nn.Module):
         ref_mic: Optional[bool] = 0,
         use_dmc: Optional[bool] = False,
         eps: Optional[float] = None,
-        verbose: Optional[bool] = True,
+        verbose: Optional[bool] = False,
     ):
         super().__init__()
 
@@ -821,16 +821,7 @@ class OverISS_T(torch.nn.Module):
                 )
             else:
                 Y, W, H, J, g = over_iss_t_one_iter(
-                    Y,
-                    X,
-                    X_bar,
-                    C_XX,
-                    C_XbarX,
-                    W,
-                    H,
-                    J,
-                    self.model,
-                    eps=self.eps,
+                    Y, X, X_bar, C_XX, C_XbarX, W, H, J, self.model, eps=self.eps,
                 )
 
             # keep track of rescaling cost
@@ -848,6 +839,9 @@ class OverISS_T(torch.nn.Module):
                 Y = a * demix_derev(X, X_bar, W, H)
             else:
                 Y = a * Y
+
+        self.W = W
+        self.J = J
 
         return Y
 
