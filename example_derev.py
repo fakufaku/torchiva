@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import torch as pt
 import torchaudio
+import fast_bss_eval
 
 # We will first validate the numpy backend
 import torchiva as bss
@@ -77,6 +78,9 @@ if __name__ == "__main__":
         "-n", "--n_iter", default=10, type=int, help="Number of iterations"
     )
     parser.add_argument(
+        "--taps", "-t", type=int, default=0, help="Number of dereverberation taps."
+    )
+    parser.add_argument(
         "-d",
         "--source_model",
         default=source_models[0],
@@ -114,7 +118,7 @@ if __name__ == "__main__":
 
         # the mixtures
         fn_mix = Path(rooms[room]["wav_dpath_mixed_reverberant"])
-        fn_mix = Path("").joinpath(*fn_mix.parts[-2:])
+        fn_mix = Path("").joinpath(*fn_mix.parts[-3:])
         fn_mix = args.dataset / fn_mix
         mix, fs_1 = torchaudio.load(fn_mix)
 
@@ -123,7 +127,7 @@ if __name__ == "__main__":
         # the reference
         ref_fns_list = rooms[room]["wav_dpath_image_anechoic"]
         ref_fns = [Path(p) for p in ref_fns_list]
-        ref_fns = [Path("").joinpath(*fn.parts[-2:]) for fn in ref_fns]
+        ref_fns = [Path("").joinpath(*fn.parts[-3:]) for fn in ref_fns]
 
         # now load the references
         audio_ref_list = []
@@ -150,6 +154,9 @@ if __name__ == "__main__":
     # STFT parameters
     if args.hop is None:
         args.hop = args.n_fft // 2
+        n_delay = 1
+    else:
+        n_delay = args.n_fft // args.hop - 1
     stft = bss.STFT(args.n_fft, hop_length=args.hop, window=args.window)
 
     # convert to pytorch tensor if necessary
@@ -157,6 +164,7 @@ if __name__ == "__main__":
     device = pt.device("cuda:0" if pt.cuda.is_available() else "cpu")
     mix = mix.to(device)
     ref = ref.to(device)
+    stft = stft.to(device)
 
     # STFT
     X = stft(mix)  # copy for back projection (numpy/torch compatible)
@@ -166,9 +174,10 @@ if __name__ == "__main__":
     # Separation
     bss_algo = bss.AuxIVA_T_ISS(
         model=bss.models.source_models[args.source_model],
-        n_taps=10,
-        n_delay=1,
+        n_taps=args.taps,
+        n_delay=n_delay,
         proj_back=True,
+        eps=1e-15,
     )
 
     Y = bss_algo(X, n_iter=args.n_iter)
@@ -198,7 +207,7 @@ if __name__ == "__main__":
     m = min([ref.shape[-1], y.shape[-1]])
 
     # scale invaliant metric
-    sdr, sir, sar, perm = bss.metrics.si_bss_eval(ref[..., :m], y[..., :m])
+    sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[..., :m], y[..., :m])
 
     t5 = time.perf_counter()
 

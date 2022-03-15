@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch as pt
 import torchaudio
+
 # We will first validate the numpy backend
 import torchiva as bss
 
@@ -53,6 +54,7 @@ def scale(X):
 def unscale(X, g):
     return X * g
 
+
 def manual_seed_all(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -96,10 +98,7 @@ if __name__ == "__main__":
         help="Location of dataset",
     )
     parser.add_argument(
-        "--channels",
-        "-c",
-        type=int,
-        help="Number of channels to use",
+        "--channels", "-c", type=int, help="Number of channels to use",
     )
     parser.add_argument("--snr", default=40, type=float, help="Signal-to-Noise Ratio")
     args = parser.parse_args()
@@ -155,18 +154,8 @@ if __name__ == "__main__":
     print(mix.shape, ref.shape)
 
     n_src = ref.shape[-2]
-
-    if args.channels is None:
-        n_chan = mix.shape[-2]
-    elif args.channels >= n_src:
-        n_chan = args.channels
-        if n_chan < mix.shape[-2]:
-            mix = mix[..., :n_chan, :]
-    else:
-        raise ValueError(
-            f"The number of channels should be more than "
-            f"the number of sources (i.e., {n_src})"
-        )
+    n_chan = n_src
+    mix = mix[..., :n_chan, :]
 
     print(f"Using {n_chan} channels to separate {n_src} sources.")
 
@@ -203,12 +192,16 @@ if __name__ == "__main__":
     n_hidden = 128
     dropout_p = 0.1
 
-    #model1 = bss.models.SimpleModel(n_freq=args.n_fft // 2 + 1, n_mels=16)
-    model1 = bss.models.GLUMask(n_input=n_freq, n_output=n_freq, n_hidden=n_hidden, dropout_p=dropout_p)
+    # model1 = bss.models.SimpleModel(n_freq=args.n_fft // 2 + 1, n_mels=16)
+    model1 = bss.models.GLUMask(
+        n_input=n_freq, n_output=n_freq, n_hidden=n_hidden, dropout_p=dropout_p
+    )
     model1 = model1.to(device)
 
-    #model2 = bss.models.SimpleModel(n_freq=args.n_fft // 2 + 1, n_mels=16)
-    model2 = bss.models.GLUMask(n_input=n_freq, n_output=n_freq, n_hidden=n_hidden, dropout_p=dropout_p)
+    # model2 = bss.models.SimpleModel(n_freq=args.n_fft // 2 + 1, n_mels=16)
+    model2 = bss.models.GLUMask(
+        n_input=n_freq, n_output=n_freq, n_hidden=n_hidden, dropout_p=dropout_p
+    )
     model2 = model2.to(device)
 
     # make sure both models are initialized the same
@@ -220,16 +213,8 @@ if __name__ == "__main__":
     set_requires_grad_(model2)
 
     # Separation normal
-    bss_algo_bp = bss.OverISS_T(
-        model=model1,
-        n_taps=5,
-        n_delay=1,
-        proj_back=not args.no_pb,
-        use_dmc=False,
-        eps=1e-3,
-    )
     bss_algo_rev = bss.OverISS_T(
-        model=model2,
+        model=model1,
         n_taps=5,
         n_delay=1,
         proj_back=not args.no_pb,
@@ -239,18 +224,26 @@ if __name__ == "__main__":
 
     # Separation with backpropagation
     manual_seed_all(0)
-    Y1 = bss_algo_bp(X, n_iter=args.n_iter)
+    Y1 = bss_algo_rev(X, n_iter=args.n_iter)
     Y1 = unscale(Y1, g)
 
     # Separation reversible
     manual_seed_all(0)
-    Y2 = bss_algo_rev(X2, n_iter=args.n_iter)
+    Y2 = bss.iss_t_rev(
+        X2,
+        model2,
+        n_iter=args.n_iter,
+        n_taps=5,
+        n_delay=1,
+        eps=1e-3,
+        proj_back=not args.no_pb,
+    )
     Y2 = unscale(Y2, g)
 
     def reconstruct_eval(Y):
         y = stft.inv(Y)  # (n_samples, n_channels)
         m = min([ref.shape[-1], y.shape[-1]])
-        sdr, perm = fast_bss_eval.si_sdr(ref[..., :m], y[..., :m])
+        sdr, *_ = fast_bss_eval.si_sdr(ref[..., :m], y[..., :m])
         return sdr.mean()
 
     sdr1 = reconstruct_eval(Y1)
@@ -266,8 +259,8 @@ if __name__ == "__main__":
     print(sdr2)
 
     if grads_1[0] is not None:
-        print(grads_1[0])
-        print(grads_2[0])
+        # print(grads_1[0])
+        # print(grads_2[0])
         print(
             torch.norm(grads_1[0]),
             torch.norm(grads_2[0]),
@@ -278,3 +271,5 @@ if __name__ == "__main__":
         print("yo!")
         print("is X the same tensor as X2?", X is X2)
         print(torch.norm(X.grad - X2.grad))
+
+    # breakpoint()

@@ -204,7 +204,7 @@ if __name__ == "__main__":
     .to(device)
     .requires_grad_(),
     """
-    use_dmc = False
+    use_dmc = True
 
     # Separation
     if args.v2:
@@ -215,7 +215,7 @@ if __name__ == "__main__":
             proj_back=True,
             verbose=True,
             eps=1e-15,
-            use_dmc=True,
+            use_dmc=use_dmc,
         )
     else:
         bss_algo = torchiva.OverISS_T(
@@ -225,7 +225,7 @@ if __name__ == "__main__":
             proj_back=True,
             verbose=True,
             eps=1e-15,
-            use_dmc=True,
+            use_dmc=use_dmc,
         )
 
     Y = bss_algo(X, n_iter=args.n_iter, n_src=2)

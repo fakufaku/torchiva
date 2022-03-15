@@ -31,11 +31,12 @@ from typing import List, NoReturn, Optional, Tuple
 
 import torch
 from torch.utils.checkpoint import checkpoint as torch_checkpoint
+from torch.utils.checkpoint import CheckpointFunction
 
-from .linalg import (divide, hankel_view, hermite, mag_sq, multiply,
-                     solve_loaded)
+from .linalg import divide, hankel_view, hermite, mag_sq, multiply, solve_loaded
 from .models import LaplaceModel
 from .parameters import eps_models
+from .auxiva_t_iss import projection_back_from_input
 
 
 def reordered_eye(n_dim, n_freq, batch_shape):
@@ -166,7 +167,6 @@ def iss_block_update_type_1(
     src: int,
     X: torch.Tensor,
     weights: torch.Tensor,
-    n_src: Optional[int] = None,
     eps: Optional[float] = 1e-3,
 ) -> torch.Tensor:
     """
@@ -313,12 +313,20 @@ def background_update(W, H, C_XX, C_XbarX, eps=1e-5):
     A1 = torch.einsum("...sfc,...cfd->...fsd", W, C_XX)
     A2 = torch.einsum("...sfdt,...dtfc->...fsc", H, C_XbarX)
     A = A1 + A2  # (..., n_freq, n_src, n_chan)
-    J_H = solve_loaded(A[..., :n_src], A[..., n_src:], load=eps)
-    """
+
+    mat = A[..., :n_src]
+    rhs = A[..., n_src:]
+
+    # no need to backprop through diagonal loading
+    with torch.no_grad():
+        load = abs(torch.diagonal(mat, dim1=-2, dim2=-1)).sum(dim=-1)
+        load = load[..., None, None]
+        load = torch.clamp(load * eps, min=eps)
+        load = load * torch.broadcast_to(torch.eye(n_src).type_as(mat), mat.shape)
+
     J_H = torch.linalg.solve(
-        A[..., :n_src] + torch.eye(n_src).type_as(A) * eps, A[..., n_src:]
+        A[..., :n_src] + load, A[..., n_src:]
     )
-    """
     J = J_H.conj().moveaxis(-1, -3)  # (..., n_chan - n_src, n_freq, n_src)
 
     return J
@@ -567,9 +575,9 @@ def rescale(Y, W, H, A=None, eps=1e-5):
     # computing the model
     g = torch.clamp(torch.mean(mag_sq(Y), dim=(-2, -1), keepdim=True), min=eps)
     g_sqrt = torch.sqrt(g)
-    Y = Y / (g_sqrt + eps)
-    W = W / (g_sqrt + eps)
-    H = H / (g_sqrt[..., None] + eps)
+    Y = Y / torch.clamp(g_sqrt, min=eps)
+    W = W / torch.clamp(g_sqrt, min=eps)
+    H = H / torch.clamp(g_sqrt[..., None], min=eps)
     if A is not None:
         A = A * g_sqrt.transpose(-3, -1)
 
@@ -578,11 +586,26 @@ def rescale(Y, W, H, A=None, eps=1e-5):
 
 def overiss2_one_iter(Y, Z, X, X_bar, C_XX, C_XbarX, W, H, J, A, model, eps=1e-3):
 
-    Y, W, H, A, g = rescale(Y, W, H, A, eps)
+    # Y, W, H, A, g = rescale(Y, W, H, A, eps)
 
     # shape: (n_chan, n_freq, n_frames)
     # model takes as input a tensor of shape (..., n_frequencies, n_frames)
     weights = model(Y)
+
+    # <---
+    # we normalize the sources to have source to have unit variance prior to
+    # computing the model
+    g = torch.clamp(
+        torch.mean(mag_sq(Y), dim=(-2, -1), keepdim=True), min=eps
+    )
+    g_sqrt = torch.sqrt(g)
+    Y = divide(Y, g_sqrt, eps=eps)
+    W = divide(W, g_sqrt, eps=eps)
+    A = A * g_sqrt.transpose(-3, -1)
+    H = divide(H, g_sqrt[..., None], eps=eps)
+    weights = weights * g
+    g = torch.Tensor([1.0])  # for cost computation
+    # <---
 
     # Iterative Source Steering updates
     Y, Z, W, H, J, A = overiss2_updates_with_H(
@@ -602,12 +625,28 @@ def overiss2_one_iter_dmc(X, X_bar, C_XX, C_XbarX, W, H, J, A, model, eps=1e-3):
 
 
 def over_iss_t_one_iter(Y, X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3):
-    Y, W, H, _, g = rescale(Y, W, H, None, eps)
+
+    # Y, W, H, _, g = rescale(Y, W, H, None, eps)
 
     # shape: (n_chan, n_freq, n_frames)
     # model takes as input a tensor of shape (..., n_frequencies, n_frames)
     weights = model(Y)
 
+    # <---
+    # we normalize the sources to have source to have unit variance prior to
+    # computing the model
+    g = torch.clamp(
+        torch.mean(mag_sq(Y), dim=(-2, -1), keepdim=True), min=eps
+    )
+    g_sqrt = torch.sqrt(g)
+    Y = divide(Y, g_sqrt, eps=eps)
+    W = divide(W, g_sqrt, eps=eps)
+    H = divide(H, g_sqrt[..., None], eps=eps)
+    weights = weights * g
+    g = torch.Tensor([1.0])  # for cost computation
+    # <---
+
+    # we normalize the sources to have source to have unit variance prior to
     # Update the background part
     if J is not None:
         J = background_update(W, H, C_XX, C_XbarX, eps=eps)
@@ -621,7 +660,7 @@ def over_iss_t_one_iter(Y, X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3):
     return Y, W, H, J, g
 
 
-def over_iss_t_one_iter_dmc(X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3):
+def over_iss_t_one_iter_dmc(X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3, *model_params):
 
     Y = demix_derev(X, X_bar, W, H)
 
@@ -743,8 +782,8 @@ class OverISS_T(torch.nn.Module):
             n_src = n_chan
         elif n_src > n_chan:
             raise ValueError(
-                f"Underdetermined source separation (n_src={n_src}, n_channels={n_chan})"
-                f" is not supported"
+                f"Underdetermined source separation (n_src={n_src},"
+                f" n_channels={n_chan}) is not supported"
             )
 
         is_overdet = n_src < n_chan
@@ -779,7 +818,7 @@ class OverISS_T(torch.nn.Module):
             J = X.new_zeros(batch_shape + (n_chan - n_src, n_freq, n_src))
         else:
             J = None
-        eye = torch.clamp(torch.eye(n_src, n_chan), min=self.eps).type_as(W)
+        eye = torch.eye(n_src, n_chan).type_as(W)
         W[...] = eye[:, None, :]
 
         H = X.new_zeros(batch_shape + (n_src, n_freq, n_chan, self.n_taps))
@@ -806,6 +845,7 @@ class OverISS_T(torch.nn.Module):
                     checkpoints_list.append((Y * a).detach())
 
             if use_dmc:
+                model_params = [p for p in self.model.parameters()]
                 W, H, J, g = torch_checkpoint(
                     over_iss_t_one_iter_dmc,
                     X,
@@ -817,6 +857,7 @@ class OverISS_T(torch.nn.Module):
                     J,
                     self.model,
                     self.eps,
+                    *model_params,
                     preserve_rng_state=True,
                 )
             else:
@@ -832,13 +873,24 @@ class OverISS_T(torch.nn.Module):
                 cost = compute_cost(self.model, W, J, Y, Z) + rescaled_cost
                 print(f"Epoch {epoch}: {cost.sum()}")
 
+        if use_dmc:
+            # when using DMC, we have not yet computed Y explicitely
+            Y = demix_derev(X, X_bar, W, H)
+
         # projection back
         if proj_back:
-            a = projection_back_weights(W, J=J, eps=self.eps, ref_mic=self.ref_mic)
-            if use_dmc:
-                Y = a * demix_derev(X, X_bar, W, H)
+            # projection back from the input signal directly
+            """
+            Z = demix_background(X, J)
+            if Z is not None:
+                Y2 = torch.cat((Y, Z), dim=-3)
             else:
-                Y = a * Y
+                Y2 = Y
+            Y, *_ = projection_back_from_input(Y2, X, X_bar, ref_mic=self.ref_mic, eps=self.eps)
+            """
+            # projection back by inverting the demixing matrix
+            a = projection_back_weights(W, J=J, eps=self.eps, ref_mic=self.ref_mic)
+            Y = a * Y
 
         self.W = W
         self.J = J
@@ -923,8 +975,8 @@ class OverISS_T_2(torch.nn.Module):
             n_src = n_chan
         elif n_src > n_chan:
             raise ValueError(
-                f"Underdetermined source separation (n_src={n_src}, n_channels={n_chan})"
-                f" is not supported"
+                f"Underdetermined source separation (n_src={n_src},"
+                f" n_channels={n_chan}) is not supported"
             )
 
         is_overdet = n_src < n_chan
@@ -955,7 +1007,7 @@ class OverISS_T_2(torch.nn.Module):
 
         # the demixing matrix
         W = X.new_zeros(batch_shape + (n_src, n_freq, n_chan))
-        eye = torch.clamp(torch.eye(n_src, n_chan), min=self.eps).type_as(W)
+        eye = torch.eye(n_src, n_chan).type_as(W)
         W[...] = eye[:, None, :]
 
         H = X.new_zeros(batch_shape + (n_src, n_freq, n_chan, self.n_taps))

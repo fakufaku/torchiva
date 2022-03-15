@@ -20,7 +20,7 @@ RTOL = 1e-5
 def make_batch_array(lst):
 
     m = min([x.shape[-1] for x in lst])
-    return pt.cat([x[None, :, :m] for x in lst], dim=0)
+    return torch.cat([x[None, :, :m] for x in lst], dim=0)
 
 
 def adjust_scale_format_int16(*arrays):
@@ -145,7 +145,7 @@ if __name__ == "__main__":
 
             audio_ref_list.append(audio[[REF_MIC], :])
 
-        ref = pt.cat(audio_ref_list, axis=0)
+        ref = torch.cat(audio_ref_list, axis=0)
         ref_lst.append(ref)
 
     fs = fs_1
@@ -180,8 +180,8 @@ if __name__ == "__main__":
     stft = bss.STFT(args.n_fft, hop_length=args.hop, window=args.window)
 
     # convert to pytorch tensor if necessary
-    print(f"Is GPU available ? {pt.cuda.is_available()}")
-    device = pt.device(0 if pt.cuda.is_available() else "cpu")
+    print(f"Is GPU available ? {torch.cuda.is_available()}")
+    device = torch.device(0 if torch.cuda.is_available() else "cpu")
     mix = mix.to(device)
     ref = ref.to(device)
     stft = stft.to(device)
@@ -225,7 +225,7 @@ if __name__ == "__main__":
         n_taps=5,
         n_delay=1,
         proj_back=not args.no_pb,
-        use_dmc=False,
+        use_dmc=True,
         eps=1e-3,
     )
     bss_algo_rev = bss.OverISS_T(
