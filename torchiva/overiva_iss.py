@@ -164,10 +164,7 @@ def demix_inv(W, J):
 
 
 def iss_block_update_type_1(
-    src: int,
-    X: torch.Tensor,
-    weights: torch.Tensor,
-    eps: Optional[float] = 1e-3,
+    src: int, X: torch.Tensor, weights: torch.Tensor, eps: Optional[float] = 1e-3,
 ) -> torch.Tensor:
     """
     Compute the update vector for ISS corresponding to update of the sources
@@ -304,6 +301,25 @@ def iss_updates_with_H(
     return X, W, H
 
 
+def stable_2x2_solve(A, b, eps=1e-5):
+
+    # linearize batch shape
+    batch_shape = A.shape[:-2]
+    A = A.reshape((-1,) + A.shape[-2:])
+
+    out = A.new_zeros(A.shape[:-1] + b[-1:])
+
+    det = abs(A[..., 0, 0] * A[..., 1, 1] - A[..., 1, 0] * A[..., 0, 1])
+    use_solve = det > eps
+
+    out[use_solve] = torch.linalg.solve(A[use_solve], b[use_solve])
+
+    is_zeros = torch.sum(abs(A[~use_solve]), dim=(-2, -1)) < eps
+
+    out[use_solve][is_zeros] = x
+
+
+
 def background_update(W, H, C_XX, C_XbarX, eps=1e-5):
     """
     Recomputes J based on W, H, and C_XX = E[X X^H] and C_XbarX = E[ X_bar X^H ]
@@ -317,16 +333,30 @@ def background_update(W, H, C_XX, C_XbarX, eps=1e-5):
     mat = A[..., :n_src]
     rhs = A[..., n_src:]
 
-    # no need to backprop through diagonal loading
     with torch.no_grad():
-        load = abs(torch.diagonal(mat, dim1=-2, dim2=-1)).sum(dim=-1)
-        load = load[..., None, None]
+        # normalize the rows of A without changing the solution
+        # for numerical stability
+        norm = torch.linalg.norm(mat.detach(), dim=-1, keepdim=True)
+        weights = 1.0 / torch.clamp(norm, min=eps)
+
+    # no need to backprop through diagonal loading
+    """
+    with torch.no_grad():
+        load = torch.sqrt(abs(torch.diagonal(mat, dim1=-2, dim2=-1)).sum(dim=-1))
+        load = trace_norm[..., None, None]
         load = torch.clamp(load * eps, min=eps)
         load = load * torch.broadcast_to(torch.eye(n_src).type_as(mat), mat.shape)
+    """
 
-    J_H = torch.linalg.solve(
-        A[..., :n_src] + load, A[..., n_src:]
-    )
+    load = eps * torch.eye(n_src).type_as(mat)
+
+    # make eigenvalues positive and scale
+    mat2 = mat * weights
+    rhs = rhs * weights
+    mat = torch.einsum("...km,...kn->...mn", mat2.conj(), mat2)
+    rhs = torch.einsum("...km,...kn->...mn", mat2.conj(), rhs)
+
+    J_H = torch.linalg.solve(mat + load, rhs)
     J = J_H.conj().moveaxis(-1, -3)  # (..., n_chan - n_src, n_freq, n_src)
 
     return J
@@ -595,9 +625,7 @@ def overiss2_one_iter(Y, Z, X, X_bar, C_XX, C_XbarX, W, H, J, A, model, eps=1e-3
     # <---
     # we normalize the sources to have source to have unit variance prior to
     # computing the model
-    g = torch.clamp(
-        torch.mean(mag_sq(Y), dim=(-2, -1), keepdim=True), min=eps
-    )
+    g = torch.clamp(torch.mean(mag_sq(Y), dim=(-2, -1), keepdim=True), min=eps)
     g_sqrt = torch.sqrt(g)
     Y = divide(Y, g_sqrt, eps=eps)
     W = divide(W, g_sqrt, eps=eps)
@@ -635,9 +663,7 @@ def over_iss_t_one_iter(Y, X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3):
     # <---
     # we normalize the sources to have source to have unit variance prior to
     # computing the model
-    g = torch.clamp(
-        torch.mean(mag_sq(Y), dim=(-2, -1), keepdim=True), min=eps
-    )
+    g = torch.clamp(torch.mean(mag_sq(Y), dim=(-2, -1), keepdim=True), min=eps)
     g_sqrt = torch.sqrt(g)
     Y = divide(Y, g_sqrt, eps=eps)
     W = divide(W, g_sqrt, eps=eps)
@@ -649,7 +675,7 @@ def over_iss_t_one_iter(Y, X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3):
     # we normalize the sources to have source to have unit variance prior to
     # Update the background part
     if J is not None:
-        J = background_update(W, H, C_XX, C_XbarX, eps=eps)
+        J = background_update(W, H, C_XX, C_XbarX, eps=1e-3)
         Z = demix_background(X, J)  # Z is None if J is None
     else:
         Z = None
@@ -660,7 +686,9 @@ def over_iss_t_one_iter(Y, X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3):
     return Y, W, H, J, g
 
 
-def over_iss_t_one_iter_dmc(X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3, *model_params):
+def over_iss_t_one_iter_dmc(
+    X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3, *model_params
+):
 
     Y = demix_derev(X, X_bar, W, H)
 
