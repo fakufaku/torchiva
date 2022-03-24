@@ -170,7 +170,7 @@ if __name__ == "__main__":
         X,
         n_iter=args.n_iter,
         model=bss.models.source_models[args.source_model],
-        two_chan_ip2=True,
+        two_chan_ip2=False,
     )
 
     t2 = time.perf_counter()

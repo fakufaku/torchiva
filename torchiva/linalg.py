@@ -125,13 +125,15 @@ def inv_2x2(W: pt.Tensor, eps=1e-6):
     W22 = W[..., 1, 1]
 
     det = W11 * W22 - W12 * W21
-    det = pt.clamp(det, min=eps)
+
+    # complex clamp
+    det = pt.where(abs(det) < eps, eps * det.new_ones(1), det)
 
     adjoint = pt.stack(
-        pt.stack((W22, -W12), dim=-1), pt.stack((-W21, W11), dim=-1), dim=-1
+        (pt.stack((W22, -W21), dim=-1), pt.stack((-W12, W11), dim=-1)), dim=-1
     )
 
-    W_inv = adjoint / det
+    W_inv = adjoint / det[..., None, None]
 
     return W_inv
 
