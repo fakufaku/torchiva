@@ -162,6 +162,8 @@ class GLUMask2(SourceModelBase):
         self.log_spec = log_spec
         self.norm_time = norm_time
 
+        self.use_output_pulling = False
+
         if n_output is None:
             n_output = n_freq
 
@@ -188,6 +190,42 @@ class GLUMask2(SourceModelBase):
                 ),
             ]
         )
+
+    def enable_output_pooling(self, kernel_size=32):
+        self.use_output_pulling = True
+        self.kernel_size = kernel_size
+
+    def disable_output_pooling(self):
+        self.use_output_pulling = False
+
+    def pool_mask(self, mask):
+
+        n_freq = mask.shape[-2]
+
+        # pooling acts on freq dim.
+        mask = mask.transpose(-2, -1)
+
+        # linearlize batch size
+        batch_shape = mask.shape[:-2]
+        mask = mask.reshape((-1,) + mask.shape[-2:])
+
+        # *MIN* pooling
+        mask = -torch.nn.functional.max_pool1d(
+            -mask, self.kernel_size, self.kernel_size, ceil_mode=True
+        )
+
+        # repeat elements to match original size
+        mask = torch.stack([mask] * self.kernel_size, dim=-1)
+        mask = mask.reshape(mask.shape[:-2] + (mask.shape[-2] * mask.shape[-1],))
+        mask = mask[..., :n_freq]
+
+        # reshape batch
+        mask = mask.reshape(batch_shape + mask.shape[-2:])
+
+        # re-order dimension to original
+        mask = mask.transpose(-2, -1)
+
+        return mask
 
     def forward(self, X):
 
@@ -226,11 +264,15 @@ class GLUMask2(SourceModelBase):
         # add a small positive offset to the weights
         weights = weights * (1 - 1e-5) + 1e-5
 
+        if self.use_output_pulling:
+            weights = self.pool_mask(weights)
+
         if self.norm_time:
             weights = weights / torch.sum(weights, dim=-1, keepdim=True)
 
         weights = weights.reshape(batch_shape + weights.shape[-2:])
         weights = torch.broadcast_to(weights, weights.shape[:-2] + (n_freq, n_frames))
+
 
         return weights
 
