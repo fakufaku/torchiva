@@ -669,7 +669,6 @@ def over_iss_t_one_iter(Y, X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=1e-3):
     W = divide(W, g_sqrt, eps=eps)
     H = divide(H, g_sqrt[..., None], eps=eps)
     weights = weights * g
-    g = torch.Tensor([1.0])  # for cost computation
     # <---
 
     # we normalize the sources to have source to have unit variance prior to
