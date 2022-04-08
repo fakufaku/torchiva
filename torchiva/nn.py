@@ -4,24 +4,21 @@ from typing import List, Optional, Dict, Union
 import torch as pt
 from torch import nn
 
-from .auxiva_iss import auxiva_iss
 from .base import SourceModelBase
-from .five import five
+from .five import FIVE
+from .auxiva_ip2 import AuxIVA_IP2
+from .overiva_iss import OverISS_T
 from .linalg import bmm, eigh, hermite, multiply
-from .metrics import si_bss_eval
 from .models import LaplaceModel
-from .overiva import overiva
 from .scaling import minimum_distortion, minimum_distortion_l2_phase, projection_back
-from .mvdr import compute_mvdr_rtf_eigh, compute_mvdr_bf
-from .mwf import compute_mwf_bf
+from .beamformer import compute_mvdr_rtf_eigh, compute_mvdr_bf, compute_mwf_bf
 from .stft import STFT
-from .utils import module_from_config
+from .utils import module_from_config, select_most_energetic
 
 
 class SepAlgo(enum.Enum):
-    AUXIVA_ISS = "auxiva-iss"
     AUXIVA_IP2 = "auxiva-ip2"
-    OVERIVA_IP = "overiva-ip"
+    OVERISS_T = "overiss_t"
     FIVE = "five"
 
 
@@ -29,21 +26,16 @@ class Separator(nn.Module):
     def __init__(
         self,
         n_fft: int,
-        n_src: Optional[int] = None,
-        algo: Optional[SepAlgo] = SepAlgo.AUXIVA_ISS,
+        n_iter: int,
         hop_length: Optional[int] = None,
         window: Optional[int] = None,
-        source_model: Optional[SourceModelBase] = None,
-        n_iter: Optional[int] = 10,
-        ref_mic: Optional[int] = 0,
-        mdp_p: Optional[float] = None,
-        mdp_q: Optional[float] = None,
-        proj_back: Optional[bool] = False,
-        mdp_phase: Optional[bool] = False,
-        mdp_model: Optional[nn.Module] = None,
-        postfilter_model: Optional[nn.Module] = None,
-        algo_kwargs: Optional[Dict] = None,
-        checkpoints: Optional[List[int]] = None,
+        n_taps: Optional[int] = 0,
+        n_delay: Optional[int] = 0,
+        n_src: Optional[int] = None,
+        algo: Optional[SepAlgo] = SepAlgo.OVERISS_T,
+        source_model: Optional[torch.nn.Module] = None,
+        proj_back_mic: Optional[int] = 0,
+        use_dmc: Optional[bool] = False,
     ):
 
         super().__init__()
@@ -58,36 +50,44 @@ class Separator(nn.Module):
 
         self.n_src = n_src
         self.algo = algo
-        if algo_kwargs is None:
-            self.algo_kwargs = {}
-        else:
-            self.algo_kwargs = algo_kwargs
 
         # other attributes
-        self.ref_mic = ref_mic
         self.n_iter = n_iter
-        self.mdp_p = mdp_p
-        self.mdp_q = mdp_q
-        self.proj_back = proj_back
-        self.mdp_phase = mdp_phase
-
-        if isinstance(mdp_model, dict):
-            self.mdp_model = module_from_config(**mdp_model)
-        else:
-            self.mdp_model = mdp_model
-
-        # we can also optionnaly use a post-filter masking model
-        if isinstance(postfilter_model, dict):
-            self.postfilter_model = module_from_config(**postfilter_model)
-        else:
-            self.postfilter_model = postfilter_model
 
         # the stft engine
         self.stft = STFT(n_fft, hop_length=hop_length, window=window)
 
-        # in some cases, we want to instrument
-        self.checkpoints = checkpoints
-        self.saved_checkpoints = None
+        # init separator
+        if self.algo == SepAlgo.OVERISS_T:
+            self.separator = OverISS_T(
+                n_iter,
+                n_taps=n_taps,
+                n_delay=n_delay,
+                n_src=n_src,
+                model=self.source_model,
+                proj_back_mic=proj_back_mic,
+                use_dmc=use_dmc,
+                eps=eps,
+            )
+
+        elif self.algo == SepAlgo.AUXIVA_IP2:
+            self.separator = AuxIVA_IP2(
+                n_iter,
+                model=self.source_model,
+                proj_back_mic=proj_back_mic,
+                eps=eps,
+            )
+            
+        elif self.algo == SepAlgo.FIVE:
+            self.separator = FIVE(
+                n_iter,
+                model=self.source_model,
+                proj_back_mic=proj_back_mic,
+                eps=eps,
+                n_power_iter=n_power_iter,
+            )
+        else:
+            raise NotImplementedError("Selected algorith is not implemented.")
 
     @property
     def algo(self):
@@ -104,33 +104,6 @@ class Separator(nn.Module):
                 "Algorithm FIVE can only extract one source. Parameter n_src ignored."
             )
 
-    def postfilter(self, Y):
-        if self.postfilter_model is None:
-            return Y
-        else:
-            mask = self.postfilter_model(Y[..., :, :])
-            mask = pt.mean(mask[..., 0, 0, :, :], dim=-1, keepdim=True)
-            return mask * Y
-
-    def scale(self, Y, X):
-
-        if self.proj_back:
-            Y = projection_back(Y, X[..., self.ref_mic, :, :])
-        elif self.mdp_phase:
-            Y = minimum_distortion_l2_phase(Y, X[..., self.ref_mic, :, :],)
-        elif self.mdp_model is not None or self.mdp_p is not None:
-            Y = minimum_distortion(
-                Y,
-                X[..., self.ref_mic, :, :],
-                p=self.mdp_p,
-                q=self.mdp_q,
-                model=self.mdp_model,
-                max_iter=1,
-            )
-        else:
-            pass
-
-        return Y
 
     def forward(self, x, n_iter=None, reset=True):
         if n_iter is None:
@@ -142,90 +115,31 @@ class Separator(nn.Module):
 
         n_chan, n_samples = x.shape[-2:]
 
-        if self.n_src is None:
-            n_src = n_chan
-        else:
-            n_src = self.n_src
+        #if self.n_src is None:
+        #    n_src = n_chan
+        #else:
+        #    n_src = self.n_src
 
-        assert n_chan >= n_src, (
-            "The number of channel should be larger or equal to "
-            "the number of sources to separate."
-        )
+        #assert n_chan >= n_src, (
+        #    "The number of channel should be larger or equal to "
+        #    "the number of sources to separate."
+        #)
 
-        # prepare a list for checkpoints just in case
-        saved_checkpoints = []
 
         # STFT
         X = self.stft(x)  # copy for back projection (numpy/torch compatible)
 
         # Separation
-        if self._algo == SepAlgo.AUXIVA_ISS:
-            Y = auxiva_iss(
-                X,
-                n_iter=n_iter,
-                model=self.source_model,
-                two_chan_ip2=False,
-                checkpoints_iter=self.checkpoints,
-                checkpoints_list=saved_checkpoints,
-                **self.algo_kwargs,
-            )
-
-        elif self._algo == SepAlgo.AUXIVA_IP2:
-            Y = auxiva_iss(
-                X,
-                n_iter=n_iter,
-                model=self.source_model,
-                two_chan_ip2=True,
-                checkpoints_iter=self.checkpoints,
-                checkpoints_list=saved_checkpoints,
-                **self.algo_kwargs,
-            )
-
-        elif self._algo == SepAlgo.OVERIVA_IP:
-            Y = overiva(
-                X,
-                n_src=self.n_src,
-                n_iter=n_iter,
-                model=self.source_model,
-                checkpoints_iter=self.checkpoints,
-                checkpoints_list=saved_checkpoints,
-                **self.algo_kwargs,
-            )
-
-        elif self._algo == SepAlgo.FIVE:
-            Y = five(
-                X,
-                n_iter=n_iter,
-                model=self.source_model,
-                ref_mic=self.ref_mic,
-                checkpoints_iter=self.checkpoints,
-                checkpoints_list=saved_checkpoints,
-                **self.algo_kwargs,
-            )
-        else:
-            raise NotImplementedError
-
-        # Solve scale ambiguity
-        Y = self.scale(Y, X)
-
-        # Post-filtering
-        Y = self.postfilter(Y)
+        Y = self.separator(X)
 
         # iSTFT
         y = self.stft.inv(Y)  # (n_samples, n_channels)
 
-        # in case we separated too many sources, select those that have most energy
+         in case we separated too many sources, select those that have most energy
         if self.n_src is not None and y.shape[-2] > self.n_src:
-            y = most_energetic(y, num=self.n_src, dim=-2, dim_reduc=-1)
+            y = select_most_energetic(y, num=self.n_src, dim=-2, dim_reduc=-1)
 
-        # post-process the checkpoints if required
-        if self.checkpoints is not None:
-            self.saved_checkpoints = {
-                "iter": self.checkpoints[: len(saved_checkpoints)],
-                "checkpoints": saved_checkpoints,
-                "ref": X,
-            }
-
+        # zero-padding if necessary 
         if y.shape[-1] < x.shape[-1]:
             y = pt.cat(
                 (y, y.new_zeros(y.shape[:-1] + (x.shape[-1] - y.shape[-1],))), dim=-1
@@ -235,33 +149,6 @@ class Separator(nn.Module):
 
         return y
 
-    def process_checkpoints(self):
-        """
-        We adjust scale and inv-STFT all the saved spectrograms
-        """
-        if self.saved_checkpoints is None:
-            return
-
-        # concatenate and broad cast to the same shape
-        X = self.saved_checkpoints["ref"]
-        Ys = pt.cat(
-            [Y[None, ...] for Y in self.saved_checkpoints["checkpoints"]], dim=0
-        )
-        X, Ys = pt.broadcast_tensors(X[None, ...], Ys)
-
-        # adjust scale
-        Ys = self.scale(Ys, X)
-
-        # Post-filtering
-        Ys = self.postfilter(Ys)
-
-        # transform to time-domain
-        ys = self.stft.inv(Ys)
-
-        ret = {"iter": self.saved_checkpoints["iter"], "signals": ys}
-        self.saved_checkpoints = None
-
-        return ret
 
 
 class MaskGEVBeamformer(nn.Module):
@@ -613,66 +500,3 @@ class MWFBeamformer(nn.Module):
         return y
 
 
-def sdr_loss(
-    estimated: pt.Tensor, reference: pt.Tensor, reduce: Optional[bool] = True,
-):
-    """
-    Negative signal-to-distortion ratio loss. This loss is permuatation invariant.
-
-    Parameters
-    ----------
-    estimated: torch.Tensor, shape (n_batch, n_channels, n_samples)
-        The estimated signals
-    reference: torch.Tensor, shape (n_batch, n_channels, n_samples_ref)
-        The reference signals, when the number of samples of estimated and reference
-        differ, they are truncated to ``min(n_samples, n_samples_ref)``
-    reduce: bool, optional
-        By default, the loss is averaged over all signals in the batch, but when
-        set to ``False``, the individual values are returned
-
-    Returns
-    -------
-    neg_sdr: torch.Tensor, shape (1) or (n_batch, n_channels)
-        The negative SDR of the estimated signals
-    """
-
-    # scale invaliant metric
-    sdr, sir, sar, perm = si_bss_eval(reference, estimated)
-
-    # we only care about the SDR
-    if reduce:
-        return -sdr.mean()
-    else:
-        return -sdr
-
-
-def most_energetic(
-    x: pt.Tensor, num: int, dim: Optional[int] = -2, dim_reduc: Optional[int] = -1
-):
-    """
-    Selects the `num` indices with most power
-
-    Parameters
-    ----------
-    x: torch.Tensor
-        The input tensor
-    num: int
-    dim:
-        The axis where the selection should occur
-    dim_reduc:
-        The axis where to perform the reduction
-    """
-
-    power = x.abs().square().mean(axis=dim_reduc, keepdim=True)
-
-    index = pt.argsort(power.transpose(dim, -1), axis=-1, descending=True)
-    index = index[..., :num]
-
-    # need to broadcast to target size
-    x_tgt = x.transpose(dim, -1)[..., :num]
-    _, index = pt.broadcast_tensors(x_tgt, index)
-
-    # reorder index axis
-    index = index.transpose(dim, -1)
-
-    return pt.gather(x, dim=dim, index=index)

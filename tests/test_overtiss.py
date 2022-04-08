@@ -33,12 +33,10 @@ ref = torch.stack((ref1[ref_mic], ref2[ref_mic]),dim=0)
 @pytest.mark.parametrize(
     "n_iter, delay, tap, n_chan, n_src, n_fft",
     [
-        (50, 0, 0, 2, 2, 4096),
-        (20, 0, 0, 6, 2, 4096),
-        (50, 1, 5, 2, 2, 1024),
-        (50, 3, 5, 2, 2, 1024),
+        #(50, 0, 0, 2, 2, 4096),
+        #(20, 0, 0, 6, 2, 4096),
+        #(50, 1, 5, 2, 2, 1024),
         (20, 1, 5, 6, 2, 1024),
-        (20, 3, 5, 6, 2, 1024),
         
     ],
 )
@@ -53,7 +51,7 @@ def test_overtiss(n_iter, delay, tap, n_chan, n_src, n_fft):
         n_fft=n_fft,
     )
 
-    overtiss1 = torchiva.OverISS_T_1_simple(
+    overtiss1 = torchiva.OverISS_T(
         n_iter,
         n_taps=tap,
         n_delay=delay,
@@ -64,7 +62,7 @@ def test_overtiss(n_iter, delay, tap, n_chan, n_src, n_fft):
         eps=None,
     )
 
-    overtiss2 = torchiva.OverISS_T_2_simple(
+    overtiss2 = torchiva.OverISS_T_2(
         n_iter,
         n_taps=tap,
         n_delay=delay,
@@ -83,8 +81,11 @@ def test_overtiss(n_iter, delay, tap, n_chan, n_src, n_fft):
     m = min(ref.shape[-1], y.shape[-1])
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
 
-    print(f"\nOverTISS1 iter:{n_iter:.0f} delay:{delay:.0f} tap:{tap:.0f} n_chan:{n_chan:.0f} n_src:{n_src:.0f} SDR", sdr)
+    print(f"\nOverTISS  iter:{n_iter:.0f} delay:{delay:.0f} tap:{tap:.0f} n_chan:{n_chan:.0f} n_src:{n_src:.0f} SDR", sdr)
 
+    """
+    # to see if the result is the same as the ''OverISS_T_2''
+    # probably does not work well when n_chan > n_src
 
     Y = overtiss2(X)
     y = stft.inv(Y)
@@ -93,8 +94,8 @@ def test_overtiss(n_iter, delay, tap, n_chan, n_src, n_fft):
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
 
     print(f"OverTISS2 iter:{n_iter:.0f} delay:{delay:.0f} tap:{tap:.0f} n_chan:{n_chan:.0f} n_src:{n_src:.0f} SDR", sdr)
-
-
+    """
+    
     """
     # to see if the result is the same as the normal ''T-ISS''
 
