@@ -1,3 +1,4 @@
 *.wav
 *.egg-info
 *__pycache__
+wsj1_6ch

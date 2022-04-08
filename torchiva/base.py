@@ -3,7 +3,11 @@ import math
 from enum import Enum
 from typing import Optional, Union
 
-import torch as pt
+import torch
+
+from .models import LaplaceModel
+from .parameters import eps_models
+
 
 
 class Window(Enum):
@@ -17,7 +21,7 @@ class Window(Enum):
 window_types = [s for s in Window._value2member_map_ if s is not None]
 
 
-class SourceModelBase(pt.nn.Module):
+class SourceModelBase(torch.nn.Module):
     """
     An abstract class to represent source models
 
@@ -46,69 +50,86 @@ class SourceModelBase(pt.nn.Module):
         pass
 
 
-class STFTBase(abc.ABC):
+
+class IVABase(torch.nn.Module):
     def __init__(
         self,
-        n_fft: int,
-        hop_length: Optional[int] = None,
-        window: Optional[Union[Window, str]] = None,
+        n_iter: int,
+        n_taps: Optional[int] = 0,
+        n_delay: Optional[int] = 0,
+        n_src: Optional[int] = None,
+        model: Optional[torch.nn.Module] = None,
+        proj_back_mic: Optional[int] = 0,
+        use_dmc: Optional[bool] = False,
+        eps: Optional[float] = 1e-5,
     ):
-        self._n_fft = n_fft
-        self._n_freq = n_fft // 2 + 1
-        self._hop_length = hop_length
+        super().__init__()
 
-        if window is None:
-            self._window_type = Window.HAMMING
+        self._n_taps = n_taps
+        self._n_delay = n_delay
+        self._n_iter = n_iter
+        self._n_src = n_src
+        self._proj_back_mic = proj_back_mic
+        self._use_dmc = use_dmc
+        
+        if eps is None:
+            self._eps = eps_models["laplace"]
         else:
-            self._window_type = Window(window)
+            self._eps = eps
 
-        # defer window creation to derived class
-        self._window = None
+        if model is None:
+            self.model = LaplaceModel()
+        else:
+            self.model = model
+        assert callable(self.model)
 
-    def _get_n_frames(self, n_samples):
-        n_hop = math.floor(n_samples / self.hop_length)
-        return n_hop + 1
+        # metrology
+        self.checkpoints_list = []
 
-    @property
-    def n_fft(self):
-        return self._n_fft
 
-    @property
-    def hop_length(self):
-        return self._hop_length
-
-    @property
-    def n_freq(self):
-        return self._n_freq
-
-    @property
-    def window(self):
-        return self._window
-
-    @property
-    def window_type(self):
-        return self._window_type
-
-    @property
-    def window_name(self):
-        return self._window_type.value
-
-    @abc.abstractmethod
-    def _make_window(self, dtype):
+    def _forward(self, X, **kwargs):
         pass
 
-    @abc.abstractmethod
-    def _forward(self, x):
+    def _set_params(self, **kwargs):
+        for (key, value) in kwargs.items():
+            if value is None:
+                kwargs[key] = getattr(self, key)
+
+        return kwargs.values()
+
+    def _preprocess(self):
+        pass
+    
+    def _one_iteration(self):
         pass
 
-    @abc.abstractmethod
-    def _backward(self, x):
+    def _projection_back(self, A, proj_back_mic):
         pass
 
-    def __call__(self, x):
-        self._make_window(x)
-        return self._forward(x)
+    @property
+    def n_iter(self):
+        return self._n_iter
+    
+    @property
+    def n_taps(self):
+        return self._n_taps
 
-    def inv(self, x):
-        self._make_window(x)
-        return self._backward(x)
+    @property
+    def n_delay(self):
+        return self._n_delay
+
+    @property
+    def n_src(self):
+        return self._n_src
+
+    @property
+    def proj_back_mic(self):
+        return self._proj_back_mic
+
+    @property
+    def use_dmc(self):
+        return self._use_dmc
+
+    @property
+    def eps(self):
+        return self._eps

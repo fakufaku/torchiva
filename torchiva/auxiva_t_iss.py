@@ -256,9 +256,9 @@ class AuxIVA_T_ISS(torch.nn.Module):
         # metrology
         self.checkpoints_list = []
 
-        print("n_iter: ", self.n_iter)
-        print("delay: ", self.n_delay)
-        print("taps: ", self.n_taps)
+        #print("n_iter: ", self.n_iter)
+        #print("delay: ", self.n_delay)
+        #print("taps: ", self.n_taps)
 
     def forward(
         self,

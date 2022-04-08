@@ -62,7 +62,7 @@ class STFT(torch.nn.Module):
     def window_type(self) -> str:
         return self._window_type
 
-    def __call__(self, x):
+    def forward(self, x):
         batch_shape = x.shape[:-1]
         n_samples = x.shape[-1]
         x = x.reshape((-1, n_samples))

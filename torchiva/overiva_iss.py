@@ -37,6 +37,7 @@ from .linalg import divide, hankel_view, hermite, mag_sq, multiply, solve_loaded
 from .models import LaplaceModel
 from .parameters import eps_models
 from .auxiva_t_iss import projection_back_from_input
+from .base import IVABase
 
 
 def reordered_eye(n_dim, n_freq, batch_shape):
@@ -1103,6 +1104,311 @@ class OverISS_T_2(torch.nn.Module):
                 )
             a = A[..., [self.ref_mic], :, :n_src].transpose(-3, -1)
             # a = projection_back_weights(W, J=J, eps=self.eps, ref_mic=self.ref_mic)
+            if use_dmc:
+                Y = a * demix_derev(X, X_bar, W, H)
+            else:
+                Y = a * Y
+
+        return Y
+
+
+class OverISS_T_1_simple(IVABase):
+    def __init__(
+        self,
+        n_iter: int,
+        n_taps: Optional[int] = 0,
+        n_delay: Optional[int] = 0,
+        n_src: Optional[int] = None,
+        model: Optional[torch.nn.Module] = None,
+        proj_back_mic: Optional[int] = 0,
+        use_dmc: Optional[bool] = False,
+        eps: Optional[float] = None,
+    ):
+
+        super().__init__(
+            n_iter,
+            n_taps=n_taps,
+            n_delay=n_delay,
+            n_src=n_src,
+            model=model,
+            proj_back_mic=proj_back_mic,
+            use_dmc=use_dmc,
+            eps=eps,
+        )
+
+        # the different parts of the demixing matrix
+        self.W = None  # target sources
+        self.H = None  # reverb for target sources
+        self.J = None  # background in overdetermined case
+
+
+    def forward(
+        self,
+        X: torch.Tensor,
+        n_iter: Optional[int] = None,
+        n_taps: Optional[int] = None,
+        n_delay: Optional[int] = None,
+        n_src: Optional[int] = None,
+        proj_back_mic: Optional[int] = None,
+        use_dmc: Optional[bool] = None,
+        eps: Optional[float] = None,
+    ) -> torch.Tensor:
+        """
+        Parameters
+        ----------
+        X: torch.Tensor, (..., n_channels, n_frequencies, n_frames)
+            The input signal
+        n_iter: int, optional
+            The number of iterations
+        proj_back:
+            Flag that indicates if we want to restore the scale
+            of the signal by projection back
+        Returns
+        -------
+        Y: torch.Tensor, (..., n_channels, n_frequencies, n_frames)
+            The separated and dereverberated signal
+        """
+        batch_shape = X.shape[:-3]
+        n_chan, n_freq, n_frames = X.shape[-3:]
+
+        n_iter, n_taps, n_delay, n_src, proj_back_mic, use_dmc, eps = self._set_params(
+            n_iter=n_iter,
+            n_taps=n_taps,
+            n_delay=n_delay,
+            n_src=n_src,
+            proj_back_mic=proj_back_mic,
+            use_dmc=use_dmc,
+            eps=eps,
+        )
+
+        if n_src > n_chan:
+            raise ValueError(
+                f"Underdetermined source separation (n_src={n_src},"
+                f" n_channels={n_chan}) is not supported"
+            )
+
+        is_overdet = n_src < n_chan
+
+        # shape (..., n_chan, n_freq, n_taps + n_delay + 1, block_size)
+        X_pad = torch.nn.functional.pad(X, (self.n_taps + self.n_delay, 0))
+        X_hankel = hankel_view(X_pad, self.n_taps + self.n_delay + 1)
+        X_bar = X_hankel[..., : -self.n_delay - 1, :]  # shape (c, f, t, b)
+
+        if is_overdet:
+            C_XX = torch.einsum("...cfn,...dfn->...cfd", X, X.conj()) / X.shape[-1]
+            C_XbarX = (
+                torch.einsum("...cftn,...dfn->...ctfd", X_bar, X.conj()) / X.shape[-1]
+            )
+        else:
+            C_XX, C_XbarX = None, None
+
+        # the demixing matrix
+        W = X.new_zeros(batch_shape + (n_src, n_freq, n_chan))
+        if is_overdet:
+            J = X.new_zeros(batch_shape + (n_chan - n_src, n_freq, n_src))
+        else:
+            J = None
+        eye = torch.eye(n_src, n_chan).type_as(W)
+        W[...] = eye[:, None, :]
+
+        H = X.new_zeros(batch_shape + (n_src, n_freq, n_chan, self.n_taps))
+
+        if is_overdet:
+            J = background_update(W, H, C_XX, C_XbarX, eps=self.eps)
+        else:
+            J = None
+
+        Y = demix_derev(X, X_bar, W, H)
+
+        rescaled_cost = 0.0
+
+        for epoch in range(n_iter):
+
+            if use_dmc:
+                model_params = [p for p in self.model.parameters()]
+                W, H, J, g = torch_checkpoint(
+                    over_iss_t_one_iter_dmc,
+                    X,
+                    X_bar,
+                    C_XX,
+                    C_XbarX,
+                    W,
+                    H,
+                    J,
+                    self.model,
+                    self.eps,
+                    *model_params,
+                    preserve_rng_state=True,
+                )
+            else:
+                Y, W, H, J, g = over_iss_t_one_iter(
+                    Y, X, X_bar, C_XX, C_XbarX, W, H, J, self.model, eps=self.eps,
+                )
+
+            # keep track of rescaling cost
+            rescaled_cost = rescaled_cost - n_freq * torch.sum(torch.log(g))
+
+        if use_dmc:
+            # when using DMC, we have not yet computed Y explicitely
+            Y = demix_derev(X, X_bar, W, H)
+
+        # projection back
+        if proj_back_mic is not None:
+            if proj_back_mic > n_src:
+                raise NotImplementedError(
+                    "Reference mic should be less than number of sources"
+                )
+            # projection back by inverting the demixing matrix
+            a = projection_back_weights(W, J=J, eps=self.eps, ref_mic=proj_back_mic)
+            Y = a * Y
+
+        self.W = W
+        self.J = J
+
+        return Y
+
+
+class OverISS_T_2_simple(IVABase):
+    def __init__(
+        self,
+        n_iter: int,
+        n_taps: Optional[int] = 0,
+        n_delay: Optional[int] = 0,
+        n_src: Optional[int] = None,
+        model: Optional[torch.nn.Module] = None,
+        proj_back_mic: Optional[int] = 0,
+        use_dmc: Optional[bool] = False,
+        eps: Optional[float] = None,
+    ):
+        super().__init__(
+            n_iter,
+            n_taps=n_taps,
+            n_delay=n_delay,
+            n_src=n_src,
+            model=model,
+            proj_back_mic=proj_back_mic,
+            use_dmc=use_dmc,
+            eps=eps,
+        )
+
+        # the different parts of the demixing matrix
+        self.W = None  # target sources
+        self.H = None  # reverb for target sources
+        self.J = None  # background in overdetermined case
+        self.A = None  # mixing matrix
+
+
+    def forward(
+        self,
+        X: torch.Tensor,
+        n_iter: Optional[int] = None,
+        n_taps: Optional[int] = None,
+        n_delay: Optional[int] = None,
+        n_src: Optional[int] = None,
+        proj_back_mic: Optional[int] = None,
+        use_dmc: Optional[bool] = None,
+        eps: Optional[float] = None,
+    ) -> torch.Tensor:
+        """
+        Parameters
+        ----------
+        X: torch.Tensor, (..., n_channels, n_frequencies, n_frames)
+            The input signal
+        n_iter: int, optional
+            The number of iterations
+        proj_back:
+            Flag that indicates if we want to restore the scale
+            of the signal by projection back
+        Returns
+        -------
+        Y: torch.Tensor, (..., n_channels, n_frequencies, n_frames)
+            The separated and dereverberated signal
+        """
+
+        batch_shape = X.shape[:-3]
+        n_chan, n_freq, n_frames = X.shape[-3:]
+
+        n_iter, n_taps, n_delay, n_src, proj_back_mic, use_dmc, eps = self._set_params(
+            n_iter=n_iter,
+            n_taps=n_taps,
+            n_delay=n_delay,
+            n_src=n_src,
+            proj_back_mic=proj_back_mic,
+            use_dmc=use_dmc,
+            eps=eps,
+        )
+
+        if n_src > n_chan:
+            raise ValueError(
+                f"Underdetermined source separation (n_src={n_src},"
+                f" n_channels={n_chan}) is not supported"
+            )
+
+        is_overdet = n_src < n_chan
+
+        # shape (..., n_chan, n_freq, n_taps + n_delay + 1, block_size)
+        X_pad = torch.nn.functional.pad(X, (n_taps + n_delay, 0))
+        X_hankel = hankel_view(X_pad, n_taps + n_delay + 1)
+        X_bar = X_hankel[..., : -n_delay - 1, :]  # shape (c, f, t, b)
+
+        if is_overdet:
+            C_XX = torch.einsum("...cfn,...dfn->...cfd", X, X.conj()) / X.shape[-1]
+            C_XbarX = (
+                torch.einsum("...cftn,...dfn->...ctfd", X_bar, X.conj()) / X.shape[-1]
+            )
+        else:
+            C_XX, C_XbarX = None, None
+
+        # the demixing matrix
+        W = X.new_zeros(batch_shape + (n_src, n_freq, n_chan))
+        eye = torch.eye(n_src, n_chan).type_as(W)
+        W[...] = eye[:, None, :]
+
+        H = X.new_zeros(batch_shape + (n_src, n_freq, n_chan, n_taps))
+
+        if is_overdet:
+            J = background_update(W, H, C_XX, C_XbarX, eps=self.eps)
+        else:
+            J = None
+
+        A = reordered_inv(make_struct_inv_upper_left(W, J))
+
+        Y = demix_derev(X, X_bar, W, H)
+        Z = demix_background(X, J)
+
+        rescaled_cost = 0.0
+
+        for epoch in range(n_iter):
+            if use_dmc:
+                W, H, J, A, g = torch_checkpoint(
+                    overiss2_one_iter_dmc,
+                    X,
+                    X_bar,
+                    C_XX,
+                    C_XbarX,
+                    W,
+                    H,
+                    J,
+                    A,
+                    self.model,
+                    self.eps,
+                    preserve_rng_state=True,
+                )
+            else:
+                Y, Z, W, H, J, A, g = overiss2_one_iter(
+                    Y, Z, X, X_bar, C_XX, C_XbarX, W, H, J, A, self.model, eps=self.eps
+                )
+
+            # keep track of rescaling cost
+            rescaled_cost = rescaled_cost - n_freq * torch.sum(torch.log(g))
+
+        # projection back
+        if proj_back_mic is not None:
+            if proj_back_mic > n_src:
+                raise NotImplementedError(
+                    "Reference mic should be less than number of sources"
+                )
+            a = A[..., [proj_back_mic], :, :n_src].transpose(-3, -1)
             if use_dmc:
                 Y = a * demix_derev(X, X_bar, W, H)
             else:

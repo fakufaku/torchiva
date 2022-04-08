@@ -1,5 +1,4 @@
 from typing import List, Optional
-
 import torch
 
 from .linalg import divide, eigh, hermite, inv_2x2, mag_sq
@@ -148,12 +147,13 @@ def spatial_model_update_ip2(
     return X, W, A
 
 
+
 def auxiva_iss(
     X: torch.Tensor,
-    n_iter: Optional[int] = 20,
+    n_iter: Optional[int] = None,
     n_src: Optional[int] = None,
-    model: Optional[callable] = None,
-    eps: Optional[float] = 1e-6,
+    model: Optional[torch.nn.Module] = None,
+    eps: Optional[float] = None,
     two_chan_ip2: Optional[bool] = True,
     proj_back_mic: Optional[bool] = 0,
     checkpoints_iter: Optional[List[int]] = None,
