@@ -1,7 +1,7 @@
 import enum
 from typing import List, Optional, Dict, Union
 
-import torch as pt
+import torch
 from torch import nn
 
 from .base import SourceModelBase
@@ -135,13 +135,13 @@ class Separator(nn.Module):
         # iSTFT
         y = self.stft.inv(Y)  # (n_samples, n_channels)
 
-         in case we separated too many sources, select those that have most energy
+        # in case we separated too many sources, select those that have most energy
         if self.n_src is not None and y.shape[-2] > self.n_src:
             y = select_most_energetic(y, num=self.n_src, dim=-2, dim_reduc=-1)
 
         # zero-padding if necessary 
         if y.shape[-1] < x.shape[-1]:
-            y = pt.cat(
+            y = torch.cat(
                 (y, y.new_zeros(y.shape[:-1] + (x.shape[-1] - y.shape[-1],))), dim=-1
             )
         elif y.shape[-1] > x.shape[-1]:
@@ -157,7 +157,7 @@ class MaskGEVBeamformer(nn.Module):
         n_fft: int,
         hop_length: Optional[int] = None,
         window: Optional[int] = None,
-        mask_model: Optional[pt.nn.Module] = None,
+        mask_model: Optional[torch.nn.Module] = None,
         ref_mic: Optional[int] = 0,
         mdp_p: Optional[float] = None,
         mdp_q: Optional[float] = None,
@@ -205,13 +205,13 @@ class MaskGEVBeamformer(nn.Module):
         eigval, eigvec = eigh(R_target, R_noise)
 
         # compute the scale
-        rhs = pt.eye(eigvec.shape[-1], dtype=eigvec.dtype, device=eigvec.device)
+        rhs = torch.eye(eigvec.shape[-1], dtype=eigvec.dtype, device=eigvec.device)
         rhs = rhs[:, -1, None]
-        steering_vector = pt.linalg.solve(hermite(eigvec), rhs)
+        steering_vector = torch.linalg.solve(hermite(eigvec), rhs)
         scale = steering_vector[..., self.ref_mic, None, :]
 
         # (batch, freq, sources, channels)
-        gev_bf = pt.conj(eigvec[..., -1].transpose(-3, -2)) * scale
+        gev_bf = torch.conj(eigvec[..., -1].transpose(-3, -2)) * scale
 
         return gev_bf
 
@@ -262,7 +262,7 @@ class MaskSeparator(nn.Module):
         n_fft: int,
         hop_length: Optional[int] = None,
         window: Optional[int] = None,
-        mask_model: Optional[pt.nn.Module] = None,
+        mask_model: Optional[torch.nn.Module] = None,
         ref_mic: Optional[int] = 0,
     ):
 
@@ -332,7 +332,7 @@ class MVDRBeamformer(nn.Module):
         n_fft: int,
         hop_length: Optional[int] = None,
         window: Optional[int] = None,
-        mask_model: Optional[Union[pt.nn.Module, Dict]] = None,
+        mask_model: Optional[Union[torch.nn.Module, Dict]] = None,
         ref_mic: Optional[int] = 0,
         use_n_power_iter: Optional[int] = None,
     ):
@@ -362,7 +362,7 @@ class MVDRBeamformer(nn.Module):
 
         # compute the covariance matrices
         R_tgt, R_noise_1, R_noise_2 = [
-            pt.einsum("...sfn,...cfn,...dfn->...sfcd", mask, X, X.conj())
+            torch.einsum("...sfn,...cfn,...dfn->...sfcd", mask, X, X.conj())
             for mask in masks
         ]
 
@@ -376,16 +376,16 @@ class MVDRBeamformer(nn.Module):
         bf = compute_mvdr_bf(R_noise_1, rtf)
 
         # compute output
-        X = pt.einsum("...cfn,...sfc->...sfn", X, bf.conj())
+        X = torch.einsum("...cfn,...sfc->...sfn", X, bf.conj())
 
         # add back DC offset
         pad_shape = X.shape[:-2] + (1,) + X.shape[-1:]
-        X = pt.cat((X.new_zeros(pad_shape), X), dim=-2)
+        X = torch.cat((X.new_zeros(pad_shape), X), dim=-2)
 
         y = self.stft.inv(X)
 
         if y.shape[-1] < x.shape[-1]:
-            y = pt.cat(
+            y = torch.cat(
                 (y, y.new_zeros(y.shape[:-1] + (x.shape[-1] - y.shape[-1],))), dim=-1
             )
         elif y.shape[-1] > x.shape[-1]:
@@ -425,7 +425,7 @@ class MWFBeamformer(nn.Module):
         n_fft: int,
         hop_length: Optional[int] = None,
         window: Optional[int] = None,
-        mask_model: Optional[Union[pt.nn.Module, Dict]] = None,
+        mask_model: Optional[Union[torch.nn.Module, Dict]] = None,
         ref_mic: Optional[int] = 0,
         time_invariant: Optional[bool] = True,
     ):
@@ -456,7 +456,7 @@ class MWFBeamformer(nn.Module):
 
         # compute the covariance matrices
         R_tgt, R_noise = [
-            pt.einsum("...sfn,...cfn,...dfn->...sfcd", mask, X, X.conj())
+            torch.einsum("...sfn,...cfn,...dfn->...sfcd", mask, X, X.conj())
             for mask in covmat_masks
         ]
 
@@ -467,7 +467,7 @@ class MWFBeamformer(nn.Module):
             bf = compute_mwf_bf(R_tgt, R_noise, ref_mic=self.ref_mic)
 
             # compute output
-            X = pt.einsum("...cfn,...sfc->...sfn", X, bf.conj())
+            X = torch.einsum("...cfn,...sfc->...sfn", X, bf.conj())
 
         else:
             assert masks.shape[-3] == 4
@@ -482,16 +482,16 @@ class MWFBeamformer(nn.Module):
             bf = compute_mwf_bf(R_tgt, R_noise, ref_mic=self.ref_mic)
 
             # compute output
-            X = pt.einsum("...cfn,...sfnc->...sfn", X, bf.conj())
+            X = torch.einsum("...cfn,...sfnc->...sfn", X, bf.conj())
 
         # add back DC offset
         pad_shape = X.shape[:-2] + (1,) + X.shape[-1:]
-        X = pt.cat((X.new_zeros(pad_shape), X), dim=-2)
+        X = torch.cat((X.new_zeros(pad_shape), X), dim=-2)
 
         y = self.stft.inv(X)
 
         if y.shape[-1] < x.shape[-1]:
-            y = pt.cat(
+            y = torch.cat(
                 (y, y.new_zeros(y.shape[:-1] + (x.shape[-1] - y.shape[-1],))), dim=-1
             )
         elif y.shape[-1] > x.shape[-1]:

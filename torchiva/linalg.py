@@ -9,20 +9,6 @@ complex_types = [pt.complex64, pt.complex128]
 
 
 def divide(num, denom, eps=1e-7):
-    """
-    if num.dtype in complex_types and denom.dtype not in complex_types:
-        return pt.view_as_complex(
-            pt.view_as_real(num) / pt.clamp(denom[..., None], min=eps)
-        )
-    elif num.dtype not in complex_types and denom.dtype not in complex_types:
-        return num / pt.clamp(denom, min=eps)
-    elif num.dtype in complex_types and denom.dtype in complex_types:
-        return num / denom
-    else:
-        raise NotImplementedError(
-            f"Division of {num.dtype} by {denom.dtype} is not implemented"
-        )
-    """
     return num / pt.clamp(denom, min=eps)
 
 

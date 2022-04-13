@@ -11,7 +11,7 @@ def select_most_energetic(
     """
     Selects the `num` indices with most power
 
-    Parametes
+    Parameters
     ----------
     x: torch.Tensor  (n_batch, n_channels, n_samples)
         The input tensor

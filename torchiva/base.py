@@ -51,10 +51,10 @@ class SourceModelBase(torch.nn.Module):
 
 
 
-class IVABase(torch.nn.Module):
+class DRBSSBase(torch.nn.Module):
     def __init__(
         self,
-        n_iter: int,
+        n_iter: Optional[int] = 10,
         n_taps: Optional[int] = 0,
         n_delay: Optional[int] = 0,
         n_src: Optional[int] = None,
@@ -87,24 +87,12 @@ class IVABase(torch.nn.Module):
         self.checkpoints_list = []
 
 
-    def _forward(self, X, **kwargs):
-        pass
-
     def _set_params(self, **kwargs):
         for (key, value) in kwargs.items():
             if value is None:
                 kwargs[key] = getattr(self, key)
 
         return kwargs.values()
-
-    def _preprocess(self):
-        pass
-    
-    def _one_iteration(self):
-        pass
-
-    def _projection_back(self, A, proj_back_mic):
-        pass
 
     @property
     def n_iter(self):

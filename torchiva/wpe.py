@@ -1,8 +1,8 @@
 from typing import Optional
-
 import torch
 
 from .linalg import hankel_view, mag_sq, solve_loaded
+from .base import DRBSSBase
 
 
 def derev(H: torch.Tensor, X: torch.Tensor, X_bar: torch.Tensor):
@@ -62,36 +62,80 @@ def wpe_one_iter(
     return H
 
 
-def wpe(
-    X: torch.Tensor,
-    n_iter=10,
-    n_delay=3,
-    n_taps=5,
-    H0: Optional[torch.Tensor] = None,
-    model: Optional[callable] = None,
-    eps: Optional[float] = 1e-5,
-    verbose: Optional[bool] = False,
-):
+class WPE(DRBSSBase):
+    """
+    Weighted prediction error (WPE) [9]_.
 
-    batch_shape = X.shape[:-3]
-    n_chan, n_freq, n_frames = X.shape[-3:]
+    Parameters
+    ----------
+    n_iter: int, optional
+        The number of iterations. (default: ``3``)
+    n_taps: int, optional
+        The length of the dereverberation filter (default: ``5``).
+    n_delay: int, optional
+        The number of delay for dereverberation (default: ``3``).
+    model: torch.nn.Module, optional
+        The model of source distribution.
+        If ``None``, time-varying Gaussian is used. (default: ``None``).
+    eps: float, optional
+        A small constant to make divisions and the like numerically stable (default:``1e-5``).
 
-    # shape (..., n_chan, n_freq, n_taps + n_delay + 1, block_size)
-    X_pad = torch.nn.functional.pad(X, (n_taps + n_delay, 0))
-    X_hankel = hankel_view(X_pad, n_taps + n_delay + 1)
-    X_bar = X_hankel[..., : -n_delay - 1, :]  # shape (c, f, t, b)
+    Returns
+    ----------
+    Y: torch.Tensor, ``shape (..., n_src, n_freq, n_frames)``
+        The dereverberated signal in STFT-domain.
 
-    # the dereverb weights
-    if H0 is None:
-        # default init at zero
-        H = X.new_zeros(batch_shape + (n_freq, n_chan, n_taps, n_chan))
-        Y = X.clone()
-    else:
-        H = H0.clone()
-        Y = derev(H, X, X_bar)
 
-    for epoch in range(n_iter):
-        H = wpe_one_iter(Y, X, X_bar, model=model, eps=eps)
-        Y = derev(H, X, X_bar)
+    References
+    ---------
+    .. [9] T. Nakatani, T. Yoshioka, K. Kinoshita, M. Miyoshi, and B. H. Juang, 
+        "Speech dereverberation based on variance-normalized delayed linear prediction",
+        IEEE Trans. on Audio, Speech, and Lang. Process., 2010.
+    """
+    def __init__(
+        self,
+        n_iter: Optional[int] = 3,
+        n_delay: Optional[int] = 3,
+        n_taps: Optional[int] = 5,
+        model: Optional[torch.nn.Module] = None,
+        eps: Optional[float] = 1e-5,
+    ):
 
-    return Y, H
+        super().__init__(
+            n_iter,
+            n_taps=n_taps,
+            n_delay=n_delay,
+            model=model,
+            eps=eps,
+        )
+
+    def forward(
+        self,
+        X: torch.Tensor,
+        n_iter: Optional[int] = None,
+        n_delay: Optional[int] = None,
+        n_taps: Optional[int] = None,
+        model: Optional[torch.nn.Module] = None,
+        eps: Optional[float] = None,
+    ):
+
+        n_iter, n_taps, n_delay, eps = self._set_params(
+            n_iter=n_iter,
+            n_taps=n_taps,
+            n_delay=n_delay,
+            eps=eps,
+        )
+
+        batch_shape = X.shape[:-3]
+        n_chan, n_freq, n_frames = X.shape[-3:]
+
+        # shape (..., n_chan, n_freq, n_taps + n_delay + 1, block_size)
+        X_pad = torch.nn.functional.pad(X, (n_taps + n_delay, 0))
+        X_hankel = hankel_view(X_pad, n_taps + n_delay + 1)
+        X_bar = X_hankel[..., : -n_delay - 1, :]  # shape (c, f, t, b)
+
+        for epoch in range(n_iter):
+            H = wpe_one_iter(Y, X, X_bar, model=model, eps=eps)
+            Y = derev(H, X, X_bar)
+
+        return Y

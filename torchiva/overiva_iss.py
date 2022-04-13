@@ -17,16 +17,7 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-"""
-Joint Dereverberation and Blind Source Separation with Itarative Source Steering
-================================================================================
-Online implementation of the algorithm presented in [1]_.
-References
-----------
-.. [1] T. Nakashima, R. Scheibler, M. Togami, and N. Ono,
-    JOINT DEREVERBERATION AND SEPARATION WITH ITERATIVE SOURCE STEERING,
-    ICASSP, 2021, https://arxiv.org/pdf/2102.06322.pdf.
-"""
+
 from typing import List, NoReturn, Optional, Tuple
 
 import torch
@@ -34,9 +25,7 @@ from torch.utils.checkpoint import checkpoint as torch_checkpoint
 from torch.utils.checkpoint import CheckpointFunction
 
 from .linalg import divide, hankel_view, hermite, mag_sq, multiply, solve_loaded
-from .models import LaplaceModel
-from .parameters import eps_models
-from .base import IVABase
+from .base import DRBSSBase
 
 
 def reordered_eye(n_dim, n_freq, batch_shape):
@@ -733,10 +722,91 @@ def projection_back_weights(W, J=None, ref_mic=0, eps=1e-6):
     return a
 
 
-class OverISS_T(IVABase):
+
+class OverISS_T(DRBSSBase):
+    """
+    Joint dereverberation and separation with *time-decorrelation iterative source steering* (T-ISS) [1]_.
+
+    Parameters can also be specified during a forward call. 
+    In this case, the forward argument is only used in that forward process and **does not rewrite class attributes**.
+
+    Parameters
+    ----------
+    n_iter: int, optional
+        The number of iterations. (default: ``10``)
+    n_taps: int, optional
+        The length of the dereverberation filter.
+        If set to ``0``, this method works as the normal AuxIVA with ISS update [2]_ (default: ``0``).
+    n_delay: int, optional
+        The number of delay for dereverberation (default: ``0``).
+    n_src: int, optional
+        The number of sources to be separated.
+        When ``n_src < n_chan``, a computationally cheaper variant (Over-T-ISS) [3]_ is used.
+        If set to ``None``,  ``n_src`` is set to ``n_chan`` (default: ``None``)
+    model: torch.nn.Module, optional
+        The model of source distribution.
+        Mask estimation neural network can also be used. 
+        If ``None``, spherical Laplace is used (default: ``None``).
+    proj_back_mic: int, optional
+        The reference mic index to perform projection back.
+        If set to ``None``, projection back is not applied (default: ``0``).
+    use_dmc: bool, optonal
+        If set to ``True``, memory efficient Demixing Matrix Checkpointing (DMC) [4]_ is used to compute the gradient.
+        It reduces the memory cost to that of a single iteration when training neural source model (default: ``False``).
+    eps: float, optional
+        A small constant to make divisions and the like numerically stable (default:``None``).
+
+
+    Methods
+    --------
+    forward(n_iter=None, n_taps=None, n_delay=None, n_src=None, model=None, proj_back_mic=None, use_dmc=None, eps=None)
+
+    Parameters
+    ----------
+    X: torch.Tensor
+        The input mixture in STFT-domain, 
+        ``shape (..., n_chan, n_freq, n_frames)``
+
+    Returns
+    ----------
+    Y: torch.Tensor, ``shape (..., n_src, n_freq, n_frames)``
+        The separated and dereverberated signal in STFT-domain
+
+    Note
+    ----
+    This class can handle various BSS methods with ISS update rule depending on the specified arguments:
+        * IVA: ``n_taps=0, n_delay=0, n_chan==n_src, model=LaplaceMoldel() or GaussMoldel()``
+        * ILRMA: ``n_taps=0, n_delay=0, n_chan==n_src, model=NMFModel()``
+        * DNN-IVA: ``n_taps=0, n_delay=0, n_chan==n_src, model=*DNNSourceModel*``
+        * OverIVA: ``n_taps=0, n_delay=0, n_chan < n_src``
+        * ILRMA-T-ISS: ``n_taps>0, n_delay>0, n_chan==n_src, model=NMFMoldel()``
+        * Over-T-ISS: ``n_taps>0, n_delay>0, n_chan > n_src``
+
+
+    References
+    ----------
+    .. [1] T. Nakashima, R. Scheibler, M. Togami, and N. Ono,
+        "Joint dereverberation and separation with iterative source steering",
+        ICASSP, 2021, https://arxiv.org/pdf/2102.06322.pdf.
+
+    .. [2] R. Scheibler, and N Ono,
+        "Fast and stable blind source separation with rank-1 updates"
+        ICASSP, 2021, 
+
+    .. [3] R. Scheibler, W. Zhang, X. Chang, S. Watanabe, and Y. Qian, 
+        "End-to-End Multi-speaker ASR with Independent Vector Analysis",
+        arXiv preprint arXiv:2204.00218, 2022, https://arxiv.org/pdf/2204.00218.pdf.
+
+    .. [4] K. Saijo, and R. Scheibler,
+        "Independence-based Joint Speech Dereverberation and Separation with Neural Source Model",
+        arXiv preprint arXiv:2110.06545, 2022, https://arxiv.org/pdf/2110.06545.pdf.
+
+    """
+
+
     def __init__(
         self,
-        n_iter: int,
+        n_iter: Optional[int] = 10,
         n_taps: Optional[int] = 0,
         n_delay: Optional[int] = 0,
         n_src: Optional[int] = None,
@@ -770,190 +840,21 @@ class OverISS_T(IVABase):
         n_taps: Optional[int] = None,
         n_delay: Optional[int] = None,
         n_src: Optional[int] = None,
+        model: Optional[torch.nn.Module] = None,
         proj_back_mic: Optional[int] = None,
         use_dmc: Optional[bool] = None,
         eps: Optional[float] = None,
     ) -> torch.Tensor:
-        """
-        Parameters
-        ----------
-        X: torch.Tensor, (..., n_channels, n_frequencies, n_frames)
-            The input signal
-        n_iter: int, optional
-            The number of iterations
-        proj_back:
-            Flag that indicates if we want to restore the scale
-            of the signal by projection back
-        Returns
-        -------
-        Y: torch.Tensor, (..., n_channels, n_frequencies, n_frames)
-            The separated and dereverberated signal
-        """
+
         batch_shape = X.shape[:-3]
         n_chan, n_freq, n_frames = X.shape[-3:]
 
-        n_iter, n_taps, n_delay, n_src, proj_back_mic, use_dmc, eps = self._set_params(
+        n_iter, n_taps, n_delay, n_src, model, proj_back_mic, use_dmc, eps = self._set_params(
             n_iter=n_iter,
-            n_taps=n_taps,
-            n_delay=n_delay,
-            n_src=n_src,
-            proj_back_mic=proj_back_mic,
-            use_dmc=use_dmc,
-            eps=eps,
-        )
-
-        if n_src > n_chan:
-            raise ValueError(
-                f"Underdetermined source separation (n_src={n_src},"
-                f" n_channels={n_chan}) is not supported"
-            )
-
-        is_overdet = n_src < n_chan
-
-        # shape (..., n_chan, n_freq, n_taps + n_delay + 1, block_size)
-        X_pad = torch.nn.functional.pad(X, (self.n_taps + self.n_delay, 0))
-        X_hankel = hankel_view(X_pad, self.n_taps + self.n_delay + 1)
-        X_bar = X_hankel[..., : -self.n_delay - 1, :]  # shape (c, f, t, b)
-
-        if is_overdet:
-            C_XX = torch.einsum("...cfn,...dfn->...cfd", X, X.conj()) / X.shape[-1]
-            C_XbarX = (
-                torch.einsum("...cftn,...dfn->...ctfd", X_bar, X.conj()) / X.shape[-1]
-            )
-        else:
-            C_XX, C_XbarX = None, None
-
-        # the demixing matrix
-        W = X.new_zeros(batch_shape + (n_src, n_freq, n_chan))
-        if is_overdet:
-            J = X.new_zeros(batch_shape + (n_chan - n_src, n_freq, n_src))
-        else:
-            J = None
-        eye = torch.eye(n_src, n_chan).type_as(W)
-        W[...] = eye[:, None, :]
-
-        H = X.new_zeros(batch_shape + (n_src, n_freq, n_chan, self.n_taps))
-
-        if is_overdet:
-            J = background_update(W, H, C_XX, C_XbarX, eps=self.eps)
-        else:
-            J = None
-
-        Y = demix_derev(X, X_bar, W, H)
-
-        rescaled_cost = 0.0
-
-        for epoch in range(n_iter):
-
-            if use_dmc:
-                model_params = [p for p in self.model.parameters()]
-                W, H, J, g = torch_checkpoint(
-                    over_iss_t_one_iter_dmc,
-                    X,
-                    X_bar,
-                    C_XX,
-                    C_XbarX,
-                    W,
-                    H,
-                    J,
-                    self.model,
-                    self.eps,
-                    *model_params,
-                    preserve_rng_state=True,
-                )
-            else:
-                Y, W, H, J, g = over_iss_t_one_iter(
-                    Y, X, X_bar, C_XX, C_XbarX, W, H, J, self.model, eps=self.eps,
-                )
-
-            # keep track of rescaling cost
-            rescaled_cost = rescaled_cost - n_freq * torch.sum(torch.log(g))
-
-        if use_dmc:
-            # when using DMC, we have not yet computed Y explicitely
-            Y = demix_derev(X, X_bar, W, H)
-
-        # projection back
-        if proj_back_mic is not None:
-            if proj_back_mic > n_src:
-                raise NotImplementedError(
-                    "Reference mic should be less than number of sources"
-                )
-            # projection back by inverting the demixing matrix
-            a = projection_back_weights(W, J=J, eps=self.eps, ref_mic=proj_back_mic)
-            Y = a * Y
-
-        self.W = W
-        self.J = J
-
-        return Y
-
-
-class OverISS_T_2(IVABase):
-    def __init__(
-        self,
-        n_iter: int,
-        n_taps: Optional[int] = 0,
-        n_delay: Optional[int] = 0,
-        n_src: Optional[int] = None,
-        model: Optional[torch.nn.Module] = None,
-        proj_back_mic: Optional[int] = 0,
-        use_dmc: Optional[bool] = False,
-        eps: Optional[float] = None,
-    ):
-        super().__init__(
-            n_iter,
             n_taps=n_taps,
             n_delay=n_delay,
             n_src=n_src,
             model=model,
-            proj_back_mic=proj_back_mic,
-            use_dmc=use_dmc,
-            eps=eps,
-        )
-
-        # the different parts of the demixing matrix
-        self.W = None  # target sources
-        self.H = None  # reverb for target sources
-        self.J = None  # background in overdetermined case
-        self.A = None  # mixing matrix
-
-
-    def forward(
-        self,
-        X: torch.Tensor,
-        n_iter: Optional[int] = None,
-        n_taps: Optional[int] = None,
-        n_delay: Optional[int] = None,
-        n_src: Optional[int] = None,
-        proj_back_mic: Optional[int] = None,
-        use_dmc: Optional[bool] = None,
-        eps: Optional[float] = None,
-    ) -> torch.Tensor:
-        """
-        Parameters
-        ----------
-        X: torch.Tensor, (..., n_channels, n_frequencies, n_frames)
-            The input signal
-        n_iter: int, optional
-            The number of iterations
-        proj_back:
-            Flag that indicates if we want to restore the scale
-            of the signal by projection back
-        Returns
-        -------
-        Y: torch.Tensor, (..., n_channels, n_frequencies, n_frames)
-            The separated and dereverberated signal
-        """
-
-        batch_shape = X.shape[:-3]
-        n_chan, n_freq, n_frames = X.shape[-3:]
-
-        n_iter, n_taps, n_delay, n_src, proj_back_mic, use_dmc, eps = self._set_params(
-            n_iter=n_iter,
-            n_taps=n_taps,
-            n_delay=n_delay,
-            n_src=n_src,
             proj_back_mic=proj_back_mic,
             use_dmc=use_dmc,
             eps=eps,
@@ -982,27 +883,30 @@ class OverISS_T_2(IVABase):
 
         # the demixing matrix
         W = X.new_zeros(batch_shape + (n_src, n_freq, n_chan))
+        if is_overdet:
+            J = X.new_zeros(batch_shape + (n_chan - n_src, n_freq, n_src))
+        else:
+            J = None
         eye = torch.eye(n_src, n_chan).type_as(W)
         W[...] = eye[:, None, :]
 
         H = X.new_zeros(batch_shape + (n_src, n_freq, n_chan, n_taps))
 
         if is_overdet:
-            J = background_update(W, H, C_XX, C_XbarX, eps=self.eps)
+            J = background_update(W, H, C_XX, C_XbarX, eps=eps)
         else:
             J = None
 
-        A = reordered_inv(make_struct_inv_upper_left(W, J))
-
         Y = demix_derev(X, X_bar, W, H)
-        Z = demix_background(X, J)
 
         rescaled_cost = 0.0
 
         for epoch in range(n_iter):
+
             if use_dmc:
-                W, H, J, A, g = torch_checkpoint(
-                    overiss2_one_iter_dmc,
+                model_params = [p for p in model.parameters()]
+                W, H, J, g = torch_checkpoint(
+                    over_iss_t_one_iter_dmc,
                     X,
                     X_bar,
                     C_XX,
@@ -1010,18 +914,22 @@ class OverISS_T_2(IVABase):
                     W,
                     H,
                     J,
-                    A,
-                    self.model,
-                    self.eps,
+                    model,
+                    eps,
+                    *model_params,
                     preserve_rng_state=True,
                 )
             else:
-                Y, Z, W, H, J, A, g = overiss2_one_iter(
-                    Y, Z, X, X_bar, C_XX, C_XbarX, W, H, J, A, self.model, eps=self.eps
+                Y, W, H, J, g = over_iss_t_one_iter(
+                    Y, X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=eps,
                 )
 
             # keep track of rescaling cost
             rescaled_cost = rescaled_cost - n_freq * torch.sum(torch.log(g))
+
+        if use_dmc:
+            # when using DMC, we have not yet computed Y explicitely
+            Y = demix_derev(X, X_bar, W, H)
 
         # projection back
         if proj_back_mic is not None:
@@ -1029,10 +937,11 @@ class OverISS_T_2(IVABase):
                 raise NotImplementedError(
                     "Reference mic should be less than number of sources"
                 )
-            a = A[..., [proj_back_mic], :, :n_src].transpose(-3, -1)
-            if use_dmc:
-                Y = a * demix_derev(X, X_bar, W, H)
-            else:
-                Y = a * Y
+            # projection back by inverting the demixing matrix
+            a = projection_back_weights(W, J=J, eps=eps, ref_mic=proj_back_mic)
+            Y = a * Y
+
+        self.W = W
+        self.J = J
 
         return Y

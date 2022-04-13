@@ -3,7 +3,7 @@ import torch
 
 from .linalg import divide, eigh, hermite, inv_2x2, mag_sq
 from .models import LaplaceModel
-from .base import IVABase
+from .base import DRBSSBase
 
 
 def spatial_model_update_ip2(
@@ -68,10 +68,52 @@ def spatial_model_update_ip2(
     return X, W, A
 
 
-class AuxIVA_IP2(IVABase):
+
+
+class AuxIVA_IP2(DRBSSBase):
+    """
+    Blind source separation based on independent vector analysis with
+    alternating updates of the mixing vectors [7]_
+
+    Parameters
+    ----------
+    n_iter: int, optional
+        The number of iterations (default: ``10``).
+    model: torch.nn.Module, optional
+        The model of source distribution.
+        If ``None``, spherical Laplace is used (default: ``None``).
+    proj_back_mic: int, optional
+        The reference mic index to perform projection back.
+        If set to ``None``, projection back is not applied (default: ``0``).
+    eps: float, optional
+        A small constant to make divisions and the like numerically stable (default:``None``).
+
+
+    Methods
+    --------
+    forward(X, n_iter=None, model=None, proj_back_mic=None, eps=None)
+
+    Parameters
+    ----------
+    X: torch.Tensor
+        The input mixture in STFT-domain, 
+        ``shape (..., n_chan, n_freq, n_frames)``
+
+    Returns
+    -------
+    X: torch.Tensor, ``shape (..., n_chan, n_freq, n_frames)``
+        The separated signal in STFT-domain.
+
+    References
+    ----------
+    .. [7] N. Ono,
+        "Fast stereo independent vector analysis and its implementation on mobile phone",
+        IWAENC, 2012. 
+    """
+
     def __init__(
         self,
-        n_iter,
+        n_iter: Optional[int] = 10,
         model: Optional[torch.nn.Module] = None,
         proj_back_mic: Optional[int] = 0,
         eps: Optional[float] = None,
@@ -93,45 +135,23 @@ class AuxIVA_IP2(IVABase):
         self,
         X: torch.Tensor,
         n_iter: Optional[int] = None,
+        model: Optional[torch.nn.Module] = None,
         proj_back_mic: Optional[int] = None,
         eps: Optional[float] = None,
     ) -> torch.Tensor:
 
-        """
-        Blind source separation based on independent vector analysis with
-        alternating updates of the mixing vectors
-
-        Parameters
-        ----------
-        X: Tensor, shape (..., n_channels, n_frequencies, n_frames)
-            STFT representation of the signal
-        n_iter: int, optional
-            The number of iterations (default 20)
-        model: SourceModel
-            The model of source distribution (default: Laplace)
-        eps: float
-            A small constant to make divisions and the like numerically stable
-        proj_back_mic: int
-            Flag that indicates if we want to restore the scale of the signal by projection back
-        ref_mic: int
-            reference microphone index
-
-        Returns
-        -------
-        X: Tensor, shape (..., n_channels, n_frequencies, n_frames)
-            STFT representation of the signal after separation
-        """
 
         n_chan, n_freq, n_frames = X.shape[-3:]
 
-        n_iter, proj_back_mic, eps = self._set_params(
+        n_iter, model, proj_back_mic, eps = self._set_params(
             n_iter=n_iter,
+            model=model,
             proj_back_mic=proj_back_mic,
             eps=eps,
         )
 
         # for now, only supports determined case
-        assert callable(self.model)
+        assert callable(model)
 
         # only supports two channels case in IP2
         assert n_chan == 2
@@ -153,7 +173,7 @@ class AuxIVA_IP2(IVABase):
 
             # shape: (n_chan, n_freq, n_frames)
             # model takes as input a tensor of shape (..., n_frequencies, n_frames)
-            weights = self.model(X)
+            weights = model(X)
 
             # we normalize the sources to have source to have unit variance prior to
             # computing the model
