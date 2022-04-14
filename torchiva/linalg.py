@@ -92,6 +92,7 @@ def solve_loaded(A: pt.Tensor, b: pt.Tensor, load=1e-6):
 
 
 def solve_loaded_general(A, b, load=1e-5, eps=1e-5):
+
     with pt.no_grad():
         # normalize the rows of A without changing the solution
         # for numerical stability

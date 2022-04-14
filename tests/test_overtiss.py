@@ -20,11 +20,11 @@ ref_mic=1
 with open(Path("wsj1_6ch") / "dev93" / "mixinfo_noise.json") as f:
     mixinfo = json.load(f)
 
-info = mixinfo["00222"]
-dtp = torch.float64
+info = mixinfo["00224"]
+dtp = torch.float32
 
-#mix, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_mixed_noise_reverb']).parts[-4:])))
-mix, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_mixed_reverberant']).parts[-4:])))
+mix, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_mixed_noise_reverb']).parts[-4:])))
+#mix, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_mixed_reverberant']).parts[-4:])))
 mix = mix.type(dtp)
 
 #if delay==0 and tap==0:
@@ -115,20 +115,22 @@ def test_overiva(n_iter, n_chan, n_src, n_fft):
     overiva = torchiva.OverIVA_IP(
         n_iter,
         n_src=2,
-        model=torchiva.models.LaplaceModel(),
+        model=torchiva.models.LaplaceModel(eps=1e-10),
         proj_back_mic=ref_mic,
-        eps=None,
+        eps=1e-6,
     )
 
     X = stft(x)
 
-    Y = overiva(X)
+    #Y = overiva(X.type(torch.complex128), verbose=True).type(torch.complex64)
+    Y = overiva(X, verbose=True)
     y = stft.inv(Y)
 
     m = min(ref.shape[-1], y.shape[-1])
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
 
-    print(f"\nOverIVA  iter:{n_iter:.0f} n_chan:{n_chan:.0f} n_src:{n_src:.0f} SDR", sdr)
+    print(f"\nOverIVA  iter:{n_iter:.0f} n_chan:{n_chan:.0f} n_src:{n_src:.0f}", end=" ")
+    print("SDR", sdr, "SIR", sir)
 
 
     #Y = pra.bss.auxiva(
@@ -226,90 +228,3 @@ def test_five(n_iter, n_chan, n_src, n_fft, n_power_iter):
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
 
     print(f"\nFIVE iter:{n_iter:.0f} n_chan:{n_chan:.0f} n_src:{n_src:.0f}", "power_iter", n_power_iter, "SDR", sdr)
-
-
-
-def check_all():
-
-    global mixinfo
-
-    overtiss_sdr = 0
-    overiva_sdr = 0 
-    ip2_sdr = 0
-
-    n_fft=4096
-    n_iter=20
-    tap=0
-    delay=0
-    ref_mic=0
-    model = torchiva.models.LaplaceModel()
-
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    
-    stft = torchiva.STFT(
-        n_fft=4096,
-    ).to(device)
-
-    overtiss = torchiva.OverISS_T(
-        n_iter,
-        n_taps=tap,
-        n_delay=delay,
-        n_src=2,
-        model = model,
-        proj_back_mic=ref_mic,
-        use_dmc=False,
-        eps=None,
-    )
-
-    overiva = torchiva.OverIVA_IP(
-        n_iter,
-        n_src=2,
-        model=model,
-        proj_back_mic=ref_mic,
-        eps=None,
-    )
-
-    ip2 = torchiva.AuxIVA_IP2(
-        n_iter,
-        model=model,
-        proj_back_mic=ref_mic,
-        eps=None,
-    )
-
-    for idx, (key, info) in tqdm(enumerate(mixinfo.items())):
-        with torch.no_grad():
-            ref1, fs = torchaudio.load(Path("wsj1_6ch")  / (Path("").joinpath(*Path(info['wav_dpath_image_reverberant'][0]).parts[-4:])))
-            ref2, fs = torchaudio.load(Path("wsj1_6ch")  / (Path("").joinpath(*Path(info['wav_dpath_image_reverberant'][1]).parts[-4:])))
-            ref = torch.stack((ref1[ref_mic], ref2[ref_mic]),dim=0)
-
-            mix, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_mixed_noise_reverb']).parts[-4:])))
-            
-            mix, ref = mix.to(device), ref.to(device)
-
-            mix = mix[:2]
-
-            X = stft(mix)
-
-            Y = overtiss(X)
-            y = stft.inv(Y)
-            m = min(ref.shape[-1], y.shape[-1])
-            sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
-            overtiss_sdr += sdr.mean().cpu().numpy()
-
-            Y = overiva(X)
-            y = stft.inv(Y)
-            m = min(ref.shape[-1], y.shape[-1])
-            sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
-            overiva_sdr += sdr.mean().cpu().numpy()
-
-            Y = ip2(X)
-            y = stft.inv(Y)
-            m = min(ref.shape[-1], y.shape[-1])
-            sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
-            ip2_sdr += sdr.mean().cpu().numpy()
-
-    print(f"\nOverTISS {overtiss_sdr/(idx+1):.2f}  OverIVA {overiva_sdr/(idx+1):.2f}  IP2 {ip2_sdr/(idx+1):.2f}")
-        
-
-if __name__ == "__main__":
-    check_all()
