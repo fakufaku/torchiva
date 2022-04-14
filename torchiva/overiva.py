@@ -1,7 +1,7 @@
 from typing import List, Optional
 import torch
 
-from .linalg import bmm, divide, eigh, hermite, mag, mag_sq, multiply, solve_loaded
+from .linalg import bmm, divide, eigh, hermite, mag, mag_sq, multiply, solve_loaded, solve_loaded_general
 from .base import DRBSSBase
 
 def freq_wise_bmm(a, b):
@@ -55,7 +55,7 @@ def orthogonal_constraint(W_top, Cx, load=1e-4):
     # compute the missing part
     tmp = W_top @ Cx
     W[..., n_src:, :n_src] = hermite(
-        solve_loaded(tmp[..., :n_src], tmp[..., n_src:], load=load)
+        solve_loaded_general(tmp[..., :n_src], tmp[..., n_src:], load=load)
     )
 
     return W
@@ -106,6 +106,8 @@ def projection_back_from_demixing_matrix(
     Y = Y * a
 
     return Y, a
+
+
 
 
 class OverIVA_IP(DRBSSBase):
@@ -194,7 +196,7 @@ class OverIVA_IP(DRBSSBase):
         )
 
         # remove DC part
-        X = X[..., 1:, :]
+        #X = X[..., 1:, :]
 
         batch_shape = X.shape[:-3]
         n_chan, n_freq, n_frames = X.shape[-3:]
@@ -221,10 +223,18 @@ class OverIVA_IP(DRBSSBase):
             # model takes as input a tensor of shape (..., n_frequencies, n_frames)
             weights = model(Y)
 
+            g = torch.clamp(torch.mean(mag_sq(Y), dim=(-2, -1), keepdim=True), min=eps)
+            g_sqrt = torch.sqrt(g)
+            Y = divide(Y, g_sqrt, eps=eps)
+            W_top[:] = divide(W_top, g_sqrt.transpose(-3, -2), eps=eps)
+            weights = weights * g
+
             # we normalize the sources to have source to have unit variance prior to
             # computing the model
 
             for k in range(n_src):
+
+                W = orthogonal_constraint(W_top, Cx, load=1e-4)
 
                 # compute the weighted spatial covariance matrix
                 V = batch_abH(X * weights[..., [k], :, :], X)
@@ -234,6 +244,13 @@ class OverIVA_IP(DRBSSBase):
 
                 # the new filter, unscaled
                 new_w = torch.conj(
+                    #torch.linalg.solve(
+                    #    WV + 1e-4 * torch.eye(n_chan, dtype=W.dtype, device=W.device),
+                    #    torch.eye(n_chan, dtype=W.dtype, device=W.device)[:, k],
+                    #)
+                    solve_loaded_general(WV, torch.eye(n_chan, dtype=W.dtype, device=W.device)[:, [k]])[...,0]
+                )
+                new_w_org = torch.conj(
                     torch.linalg.solve(
                         WV + 1e-4 * torch.eye(n_chan, dtype=W.dtype, device=W.device),
                         torch.eye(n_chan, dtype=W.dtype, device=W.device)[:, k],
@@ -248,7 +265,9 @@ class OverIVA_IP(DRBSSBase):
                 W_top = torch.cat([W[..., :k, :], new_w, W[..., k + 1 : n_src, :]], dim=-2)
 
                 # apply the orthogonal constraint
-                W = orthogonal_constraint(W_top, Cx, load=1e-4)
+                #W = orthogonal_constraint(W_top, Cx, load=1e-4)
+
+            
 
             # demix
             Y = freq_wise_bmm(W_top, X)
@@ -259,7 +278,7 @@ class OverIVA_IP(DRBSSBase):
                 )
 
         # add back DC offset
-        pad_shape = Y.shape[:-2] + (1,) + Y.shape[-1:]
-        Y = torch.cat((Y.new_zeros(pad_shape), Y), dim=-2)
+        #pad_shape = Y.shape[:-2] + (1,) + Y.shape[-1:]
+        #Y = torch.cat((Y.new_zeros(pad_shape), Y), dim=-2)
 
         return Y

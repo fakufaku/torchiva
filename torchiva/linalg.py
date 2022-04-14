@@ -91,6 +91,24 @@ def solve_loaded(A: pt.Tensor, b: pt.Tensor, load=1e-6):
     return pt.linalg.solve(A + load_factor * eye, b)
 
 
+def solve_loaded_general(A, b, load=1e-5, eps=1e-5):
+    with pt.no_grad():
+        # normalize the rows of A without changing the solution
+        # for numerical stability
+        norm = pt.linalg.norm(A.detach(), dim=-1, keepdim=True)
+        weights = 1.0 / pt.clamp(norm, min=eps)
+
+    load = eps * pt.eye(A.shape[-1]).type_as(A)
+
+    # make eigenvalues positive and scale
+    A2 = A * weights
+    b = b * weights
+    A = pt.einsum("...km,...kn->...mn", A2.conj(), A2)
+    b = pt.einsum("...km,...kn->...mn", A2.conj(), b)
+
+    return pt.linalg.solve(A + load, b)
+
+
 def inv_loaded(A: pt.Tensor, load=1e-6):
     eye = pt.eye(A.shape[-1]).type_as(A)
     load_factor = (
@@ -151,7 +169,7 @@ def solve(
     out_r[:, :, :, 0] = x_ri[:, :n_dim, :]
     out_r[:, :, :, 1] = x_ri[:, n_dim:, :]
 
-    # we return a None to match the interface of torch.solve
+    # we return a None to match the interface of pt.solve
     return out, None
 
 
@@ -326,7 +344,7 @@ def eigh(
         eigenvalues, eigenvectors = eigh_wrapper(A, use_cpu=use_eigh_cpu)
 
     return_type_eigh = collections.namedtuple(
-        "return_type_torchiva_linalg_eigh", ("eigenvalues", "eigenvectors")
+        "return_type_ptiva_linalg_eigh", ("eigenvalues", "eigenvectors")
     )
 
     return return_type_eigh(eigenvalues, eigenvectors)

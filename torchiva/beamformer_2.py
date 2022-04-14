@@ -1,12 +1,13 @@
-from typing import List, NoReturn, Optional, Tuple, Union, Dict
+from typing import Optional
 import torch
-import torch.nn as nn
 from .linalg import eigh, solve_loaded, bmm, hermite, multiply
+from .base import BFBase
 
 
 def compute_mwf_bf(
     covmat_target: torch.Tensor,
     covmat_noise: torch.Tensor,
+    eps: Optional[float] = 1e-5,
     ref_mic: Optional[int] = None,
 ):
     """
@@ -34,7 +35,7 @@ def compute_mwf_bf(
     """
 
     if ref_mic is None:
-        W_H = solve_loaded(covmat_target + covmat_noise, covmat_target, load=1e-5)
+        W_H = solve_loaded(covmat_target + covmat_noise, covmat_target, load=eps)
         return W_H
 
     else:
@@ -69,16 +70,22 @@ def compute_mvdr_rtf_eigh(
 
     if power_iterations is None:
         eigval, eigvec = eigh(covmat_target, covmat_noise)
-        steering_vector = eigvec[..., :, -1]
+        v = eigvec[..., :, -1]
+        #steering_vector = eigvec[..., :, -1]
+        
     else:
-        Phi = solve_loaded(covmat_target, covmat_noise, load=1e-5)
+        #Phi = solve_loaded(covmat_target, covmat_noise, load=1e-5) #original
+        Phi = solve_loaded(covmat_noise, covmat_target, load=1e-5)
 
         # use power iteration to compute dominant eigenvector
         v = Phi[..., :, 0]
         for epoch in range(power_iterations - 1):
             v = torch.einsum("...cd,...d->...c", Phi, v)
-
-        steering_vector = torch.einsum("...cd,...d->...c", covmat_noise, v)
+            v = torch.nn.functional.normalize(v, dim=-1)
+            
+    steering_vector = torch.einsum("...cd,...d->...c", covmat_noise, v)
+    #steering_vector = torch.einsum("...cd,...d->...c", covmat_target, v)
+    #steering_vector = v
 
     # normalize reference component
     scale = steering_vector[..., [ref_mic]]
@@ -98,41 +105,44 @@ def compute_mvdr_bf(
     Parameters
     ----------
     """
-    a = solve_loaded(covmat_noise, steering_vector, load=1e-5)
+    a = solve_loaded(covmat_noise, steering_vector, load=eps)
     denom = torch.einsum("...c,...c->...", steering_vector.conj(), a)
     denom = denom.real  # because covmat is PSD
-    denom = torch.clamp(denom, min=1e-6)
+    denom = torch.clamp(denom, min=eps)
     return a / denom[..., None]
 
 
-def compute_gev_bf(X, mask, ref_mic=0):
-    """
-    X: (batch, channels, freq, frames)
-    mask: (batch, sources, freq, frames)
-    """
+def compute_mvdr_bf2(
+    covmat_target: torch.Tensor,
+    covmat_noise: torch.Tensor,
+    ref_mic: Optional[int] = 0,
+    eps: Optional[float] = 1e-5,
 
-    # (batch, sources, channels, freq, frames)
-    targets = multiply(X[..., None, :, :, :], mask[..., :, None, :, :])
-    noise = multiply(X[..., None, :, :, :], (1.0 - mask[..., :, None, :, :]))
+) -> torch.Tensor:
 
-    # (batch, sources, channels, freq, frames)
-    targets = targets.transpose(-3, -2)
-    noise = noise.transpose(-3, -2)
+    num = torch.linalg.solve(covmat_noise, covmat_target)
+    denom = torch.sum(torch.diagonal(num,dim1=-2,dim2=-1),dim=-1)
 
-    # create the covariance matrices
-    # (batch, sources, freq, channels, channels)
-    R_target = bmm(targets, hermite(targets)) / targets.shape[-1]
-    R_noise = bmm(noise, hermite(noise)) / targets.shape[-1]
+    w = num / denom[...,None,None]
+
+    return w[..., ref_mic]
+
+
+def compute_gev_bf(
+    covmat_target: torch.Tensor,
+    covmat_noise: torch.Tensor,
+    ref_mic: Optional[int] = 0,
+):
 
     # now compute the GEV beamformers
     # eigenvalues are listed in ascending order
-    eigval, eigvec = eigh(R_target, R_noise)
+    eigval, eigvec = eigh(covmat_target, covmat_noise)
 
     # compute the scale
     rhs = torch.eye(eigvec.shape[-1], dtype=eigvec.dtype, device=eigvec.device)
     rhs = rhs[:, -1, None]
     steering_vector = torch.linalg.solve(hermite(eigvec), rhs)
-    scale = steering_vector[..., ref_mic, None, :]
+    scale = steering_vector[..., ref_mic, :].transpose(-3, -2)
 
     # (batch, freq, sources, channels)
     gev_bf = torch.conj(eigvec[..., -1].transpose(-3, -2)) * scale
@@ -140,7 +150,8 @@ def compute_gev_bf(X, mask, ref_mic=0):
     return gev_bf
 
 
-class MVDRBeamformer(nn.Module):
+
+class MVDRBeamformer(BFBase):
     """
     Implementation of MVDR beamformer described in
 
@@ -150,57 +161,53 @@ class MVDRBeamformer(nn.Module):
 
     Parameters
     ----------
-    n_fft: int
-        FFT size for the STFT
-    hop_length: int
-        Shift of the STFT
-    window: str
-        The window to use for the STFT
     mask_model: torch.nn.Module
         A function that is given one spectrogram and returns 3 masks
         of the same size as the input
-    ref_mic: int, optionala
-        Reference channel (default: 0)
-    use_n_power_iter: int, optional
+    ref_mic: int, optional
+        Reference channel (default: ``0``)
+    n_power_iter: int, optional
         Use the power iteration method to compute the relative
         transfer function instead of the full generalized
         eigenvalue decomposition (GEVD). The number of iteration
-        desired should be provided. By default, the full GEVD
-        is used
+        desired should be provided. If set to ``None``, the full GEVD
+        is used (default: ``None``).
     """
 
     def __init__(
         self,
-        n_fft: int,
-        hop_length: Optional[int] = None,
-        window: Optional[int] = None,
-        mask_model: Optional[Union[torch.nn.Module, Dict]] = None,
+        mask_model: torch.nn.Module,
         ref_mic: Optional[int] = 0,
-        use_n_power_iter: Optional[int] = None,
+        eps: Optional[float] = 1e-5,
+        n_power_iter: Optional[int] = None,
     ):
-        super().__init__()
-        # other attributes
-        self.ref_mic = ref_mic
-        self.n_power_iter = use_n_power_iter
+        super().__init__(
+            mask_model,
+            ref_mic=ref_mic,
+            eps=eps,
+        )
 
-        if isinstance(mask_model, dict):
-            self.mask_model = module_from_config(**mask_model)
-        elif isinstance(mask_model, nn.Module):
-            self.mask_model = mask_model
-
-        # the stft engine
-        self.stft = STFT(n_fft, hop_length=hop_length, window=window)
+        self.n_power_iter=n_power_iter
 
 
-    def forward(self, x):
+    def forward(
+        self, 
+        X: torch.Tensor,
+        mask_model: Optional[torch.nn.Module] = None,
+        ref_mic: Optional[int] = None,
+        eps: Optional[float] = None,
+        n_power_iter: Optional[int] = None,
+    ):
 
-        X = self.stft(x)
+        mask_model, ref_mic, eps, n_power_iter = self._set_params(
+            mask_model, ref_mic, eps, n_power_iter,
+        )
 
         # remove the DC
         X = X[..., 1:, :]
 
         # compute the masks (..., n_src, n_masks, n_freq, n_frames)
-        masks = self.mask_model(X[..., self.ref_mic, :, :])
+        masks = mask_model(X[..., ref_mic, :, :])
         masks = [masks[..., i, :, :] for i in range(3)]
 
         # compute the covariance matrices
@@ -211,12 +218,12 @@ class MVDRBeamformer(nn.Module):
 
         # compute the relative transfer function
         rtf = compute_mvdr_rtf_eigh(
-            R_tgt, R_noise_2, power_iterations=self.n_power_iter
+            R_tgt, R_noise_2, ref_mic=ref_mic, power_iterations=n_power_iter,
         )
 
         # compute the beamforming weights
         # shape (..., n_freq, n_chan)
-        bf = compute_mvdr_bf(R_noise_1, rtf)
+        bf = compute_mvdr_bf(R_noise_1, rtf, eps=eps)
 
         # compute output
         X = torch.einsum("...cfn,...sfc->...sfn", X, bf.conj())
@@ -225,19 +232,10 @@ class MVDRBeamformer(nn.Module):
         pad_shape = X.shape[:-2] + (1,) + X.shape[-1:]
         X = torch.cat((X.new_zeros(pad_shape), X), dim=-2)
 
-        y = self.stft.inv(X)
-
-        if y.shape[-1] < x.shape[-1]:
-            y = torch.cat(
-                (y, y.new_zeros(y.shape[:-1] + (x.shape[-1] - y.shape[-1],))), dim=-1
-            )
-        elif y.shape[-1] > x.shape[-1]:
-            y = y[..., : x.shape[-1]]
-
-        return y
+        return X
 
 
-class MWFBeamformer(nn.Module):
+class MWFBeamformer(BFBase):
     """
     Implementation of the MWF beamformer described in
 
@@ -265,35 +263,38 @@ class MWFBeamformer(nn.Module):
 
     def __init__(
         self,
-        n_fft: int,
-        hop_length: Optional[int] = None,
-        window: Optional[int] = None,
-        mask_model: Optional[Union[torch.nn.Module, Dict]] = None,
+        mask_model: torch.nn.Module,
         ref_mic: Optional[int] = 0,
+        eps: Optional[float] = 1e-5,
         time_invariant: Optional[bool] = True,
     ):
-        super().__init__()
-        # other attributes
-        self.ref_mic = ref_mic
+        super().__init__(
+            mask_model,
+            ref_mic=ref_mic,
+            eps=eps,
+        )
+
         self.time_invariant = time_invariant
 
-        if isinstance(mask_model, dict):
-            self.mask_model = module_from_config(**mask_model)
-        elif isinstance(mask_model, nn.Module):
-            self.mask_model = mask_model
 
-        # the stft engine
-        self.stft = STFT(n_fft, hop_length=hop_length, window=window)
+    def forward(
+        self, 
+        X: torch.Tensor,
+        mask_model: Optional[torch.nn.Module] = None,
+        ref_mic: Optional[int] = None,
+        eps: Optional[float] = None,
+        time_invariant: Optional[bool] = None,
+    ):
 
-    def forward(self, x):
-
-        X = self.stft(x)
+        mask_model, ref_mic, eps, time_invariant = self._set_params(
+            mask_model, ref_mic, eps, time_invariant,
+        )
 
         # remove the DC
         X = X[..., 1:, :]
 
         # compute the masks (..., n_src, n_masks, n_freq, n_frames)
-        masks = self.mask_model(X[..., self.ref_mic, :, :])
+        masks = mask_model(X[..., ref_mic, :, :])
 
         covmat_masks = [masks[..., i, :, :] for i in range(2)]
 
@@ -303,11 +304,11 @@ class MWFBeamformer(nn.Module):
             for mask in covmat_masks
         ]
 
-        if self.time_invariant:
+        if time_invariant:
 
             # compute the beamforming weights
             # shape (..., n_freq, n_chan)
-            bf = compute_mwf_bf(R_tgt, R_noise, ref_mic=self.ref_mic)
+            bf = compute_mwf_bf(R_tgt, R_noise, eps=eps, ref_mic=ref_mic)
 
             # compute output
             X = torch.einsum("...cfn,...sfc->...sfn", X, bf.conj())
@@ -322,7 +323,7 @@ class MWFBeamformer(nn.Module):
 
             # compute the beamforming weights
             # shape (..., n_freq, n_time, n_chan)
-            bf = compute_mwf_bf(R_tgt, R_noise, ref_mic=self.ref_mic)
+            bf = compute_mwf_bf(R_tgt, R_noise, eps=eps, ref_mic=ref_mic)
 
             # compute output
             X = torch.einsum("...cfn,...sfnc->...sfn", X, bf.conj())
@@ -331,81 +332,57 @@ class MWFBeamformer(nn.Module):
         pad_shape = X.shape[:-2] + (1,) + X.shape[-1:]
         X = torch.cat((X.new_zeros(pad_shape), X), dim=-2)
 
-        y = self.stft.inv(X)
-
-        if y.shape[-1] < x.shape[-1]:
-            y = torch.cat(
-                (y, y.new_zeros(y.shape[:-1] + (x.shape[-1] - y.shape[-1],))), dim=-1
-            )
-        elif y.shape[-1] > x.shape[-1]:
-            y = y[..., : x.shape[-1]]
-
-        return y
+        return X
 
 
 
-class GEVBeamformer(nn.Module):
+class GEVBeamformer(BFBase):
     def __init__(
         self,
-        n_fft: int,
-        hop_length: Optional[int] = None,
-        window: Optional[int] = None,
-        mask_model: Optional[torch.nn.Module] = None,
+        mask_model: torch.nn.Module,
         ref_mic: Optional[int] = 0,
-        mdp_p: Optional[float] = None,
-        mdp_q: Optional[float] = None,
-        proj_back: Optional[bool] = False,
-        mdp_phase: Optional[bool] = False,
-        mdp_model: Optional[bool] = None,
+        eps: Optional[float] = 1e-5,
     ):
 
-        super().__init__()
+        super().__init__(
+            mask_model,
+            ref_mic=ref_mic,
+            eps=eps,
+        )
 
-        self.mask_model = mask_model
+    def forward(
+        self, 
+        X: torch.Tensor,
+        mask_model: Optional[torch.nn.Module] = None,
+        ref_mic: Optional[int] = None,
+        eps: Optional[float] = None,
+    ):
 
-        # other attributes
-        self.ref_mic = ref_mic
-        self.mdp_p = mdp_p
-        self.mdp_q = mdp_q
-        self.proj_back = proj_back
-        self.mdp_phase = mdp_phase
-        self.mdp_model = mdp_model
-
-        # the stft engine
-        self.stft = STFT(n_fft, hop_length=hop_length, window=window)
-
-
-    def forward(self, x):
-
-        # STFT (batch, channels, freq, frames)
-        X = self.stft(x)
+        mask_model, ref_mic, eps = self._set_params(
+            mask_model, ref_mic, eps,
+        )
 
         # Compute the mask
-        mask = self.mask_model(X[..., self.ref_mic, :, :])
+        mask = mask_model(X[..., ref_mic, :, :])
+
+        # (batch, sources, channels, freq, frames)
+        targets = multiply(X[..., None, :, :, :], mask[..., :, None, :, :])
+        noise = multiply(X[..., None, :, :, :], (1.0 - mask[..., :, None, :, :]))
+
+        # (batch, sources, channels, freq, frames)
+        targets = targets.transpose(-3, -2)
+        noise = noise.transpose(-3, -2)
+
+        # create the covariance matrices
+        # (batch, sources, freq, channels, channels)
+        R_target = bmm(targets, hermite(targets)) / targets.shape[-1]
+        R_noise = bmm(noise, hermite(noise)) / targets.shape[-1]
 
         # Compute the beamformers
-        gev_bf = compute_gev_bf(X, mask, ref_mic=self.ref_mic)
+        gev_bf = compute_gev_bf(R_target, R_noise, ref_mic=ref_mic)
 
         # Separation
         # (batch, sources, freq, frames)
         Y = bmm(gev_bf, X.transpose(-3, -2)).transpose(-3, -2)
 
-        # Restore the scale
-        if self.proj_back:
-            Y = projection_back(Y, X[..., self.ref_mic, :, :])
-        elif self.mdp_phase:
-            Y = minimum_distortion_l2_phase(Y, X[..., self.ref_mic, :, :],)
-        elif self.mdp_p is not None:
-            Y = minimum_distortion(
-                Y,
-                X[..., self.ref_mic, :, :],
-                p=self.mdp_p,
-                q=self.mdp_q,
-                model=self.mdp_model,
-                max_iter=10,
-            )
-
-        # iSTFT
-        y = self.stft.inv(Y)  # (n_samples, n_channels)
-
-        return y
+        return Y

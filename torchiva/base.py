@@ -121,3 +121,34 @@ class DRBSSBase(torch.nn.Module):
     @property
     def eps(self):
         return self._eps
+
+
+
+class BFBase(torch.nn.Module):
+    def __init__(
+        self,
+        mask_model: torch.nn.Module,
+        ref_mic: Optional[int] = 0,
+        eps: Optional[float] = 1e-5,
+    ):
+        super().__init__()
+
+        self.mask_model = mask_model
+
+        self._ref_mic = ref_mic
+        self._eps = eps
+
+
+    def _set_params(self, **kwargs):
+        for (key, value) in kwargs.items():
+            if value is None:
+                kwargs[key] = getattr(self, key)
+
+        return kwargs.values()
+
+    @property
+    def ref_mic(self):
+        return self._ref_mic
+    @property
+    def eps(self):
+        return self._eps

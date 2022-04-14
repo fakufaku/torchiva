@@ -12,6 +12,8 @@ from .processingpool import ProcessingPool
 from .scaling import (minimum_distortion, minimum_distortion_l2_phase,
                       projection_back)
 from .beamformer import compute_mwf_bf, compute_mvdr_bf
+from .beamformer_2 import MVDRBeamformer, MWFBeamformer, GEVBeamformer
+from .beamformer_2 import compute_mvdr_bf, compute_mvdr_bf2, compute_mvdr_rtf_eigh, compute_mwf_bf, compute_gev_bf
 from .stft import STFT
 from .utils import select_most_energetic
 from .wpe import WPE

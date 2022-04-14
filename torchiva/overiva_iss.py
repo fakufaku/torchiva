@@ -328,14 +328,6 @@ def background_update(W, H, C_XX, C_XbarX, eps=1e-5):
         norm = torch.linalg.norm(mat.detach(), dim=-1, keepdim=True)
         weights = 1.0 / torch.clamp(norm, min=eps)
 
-    # no need to backprop through diagonal loading
-    """
-    with torch.no_grad():
-        load = torch.sqrt(abs(torch.diagonal(mat, dim1=-2, dim2=-1)).sum(dim=-1))
-        load = trace_norm[..., None, None]
-        load = torch.clamp(load * eps, min=eps)
-        load = load * torch.broadcast_to(torch.eye(n_src).type_as(mat), mat.shape)
-    """
 
     load = eps * torch.eye(n_src).type_as(mat)
 
@@ -932,7 +924,7 @@ class OverISS_T(DRBSSBase):
             Y = demix_derev(X, X_bar, W, H)
 
         # projection back
-        if proj_back_mic is not None:
+        if proj_back_mic is not None and n_iter>0:
             if proj_back_mic > n_src:
                 raise NotImplementedError(
                     "Reference mic should be less than number of sources"

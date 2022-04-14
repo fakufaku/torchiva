@@ -184,7 +184,7 @@ class AuxIVA_IP2(DRBSSBase):
             # Here are the exact/fast updates for two channels using the GEVD
             X, W, A = spatial_model_update_ip2(Xo, weights, W=W, A=A, eps=eps)
 
-        if proj_back_mic is not None:
+        if proj_back_mic is not None and n_iter>0:
             a = A[..., :, [proj_back_mic], :].moveaxis(-1, -3)
             X = a * X
 
