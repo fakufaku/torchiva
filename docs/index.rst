@@ -19,15 +19,29 @@ Welcome to torchiva's documentation!
 API
 ---
 
-.. autoclass:: torchiva.OverISS_T
+.. toctree::
+   :maxdepth: 2
+   :caption: BSS algorithms:
+   :numbered:
 
-.. autoclass:: torchiva.OverIVA_IP
+   bss
 
-.. autoclass:: torchiva.AuxIVA_IP2
+.. toctree::
+   :maxdepth: 2
+   :caption: Beamforming algorithms:
+   :numbered:
 
-.. autoclass:: torchiva.FIVE
+   bf
 
-.. autoclass:: torchiva.WPE
+.. toctree::
+   :maxdepth: 2
+   :caption: Dereverberation algorithms:
+   :numbered:
+
+   derev
+
+
+
 
 Indices and tables
 ==================

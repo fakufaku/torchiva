@@ -149,6 +149,7 @@ class BFBase(torch.nn.Module):
     @property
     def ref_mic(self):
         return self._ref_mic
+        
     @property
     def eps(self):
         return self._eps

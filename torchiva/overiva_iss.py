@@ -767,12 +767,13 @@ class OverISS_T(DRBSSBase):
     Note
     ----
     This class can handle various BSS methods with ISS update rule depending on the specified arguments:
-        * IVA: ``n_taps=0, n_delay=0, n_chan==n_src, model=LaplaceMoldel() or GaussMoldel()``
-        * ILRMA: ``n_taps=0, n_delay=0, n_chan==n_src, model=NMFModel()``
-        * DNN-IVA: ``n_taps=0, n_delay=0, n_chan==n_src, model=*DNNSourceModel*``
-        * OverIVA: ``n_taps=0, n_delay=0, n_chan < n_src``
-        * ILRMA-T-ISS: ``n_taps>0, n_delay>0, n_chan==n_src, model=NMFMoldel()``
-        * Over-T-ISS: ``n_taps>0, n_delay>0, n_chan > n_src``
+        * IVA-ISS: ``n_taps=0, n_delay=0, n_chan==n_src, model=LaplaceMoldel() or GaussMoldel()``
+        * ILRMA-ISS: ``n_taps=0, n_delay=0, n_chan==n_src, model=NMFModel()``
+        * DNN-IVA-ISS: ``n_taps=0, n_delay=0, n_chan==n_src, model=*DNN*``
+        * OverIVA-ISS: ``n_taps=0, n_delay=0, n_chan < n_src``
+        * ILRMA-T-ISS [1]_ : ``n_taps>0, n_delay>0, n_chan==n_src, model=NMFMoldel()``
+        * DNN-T-ISS [4]_ : ``n_taps>0, n_delay>0, n_chan==n_src, model=*DNN*``
+        * Over-T-ISS [3]_ : ``n_taps>0, n_delay>0, n_chan > n_src``
 
 
     References

@@ -98,7 +98,7 @@ def solve_loaded_general(A, b, load=1e-5, eps=1e-5):
         norm = pt.linalg.norm(A.detach(), dim=-1, keepdim=True)
         weights = 1.0 / pt.clamp(norm, min=eps)
 
-    load = eps * pt.eye(A.shape[-1]).type_as(A)
+    load_eye = load * pt.eye(A.shape[-1]).type_as(A)
 
     # make eigenvalues positive and scale
     A2 = A * weights
@@ -106,7 +106,7 @@ def solve_loaded_general(A, b, load=1e-5, eps=1e-5):
     A = pt.einsum("...km,...kn->...mn", A2.conj(), A2)
     b = pt.einsum("...km,...kn->...mn", A2.conj(), b)
 
-    return pt.linalg.solve(A + load, b)
+    return pt.linalg.solve(A + load_eye, b)
 
 
 def inv_loaded(A: pt.Tensor, load=1e-6):

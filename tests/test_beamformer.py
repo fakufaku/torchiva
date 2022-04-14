@@ -16,12 +16,12 @@ ref_mic=0
 with open(Path("wsj1_6ch") / "dev93" / "mixinfo_noise.json") as f:
     mixinfo = json.load(f)
 
-info = mixinfo["00221"]
+info = mixinfo["00001"]
 
 mix, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_mixed_noise_reverb']).parts[-4:])))
 
-ref1, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_image_anechoic'][0]).parts[-4:])))
-ref2, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_image_anechoic'][1]).parts[-4:])))
+ref1, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_image_reverberant'][0]).parts[-4:])))
+ref2, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_image_reverberant'][1]).parts[-4:])))
 ref = torch.stack((ref1[ref_mic], ref2[ref_mic]),dim=0)
 
 
@@ -33,13 +33,12 @@ def mse(ref, y):
     return torch.mean(abs(ref-y)**2)
 
 @pytest.mark.parametrize(
-    "n_fft, n_power_iter",
+    "n_fft",
     [
-        (4096, 10),
-        (4096, None),
+        (4096),
     ],
 )
-def test_beamformers(n_fft, n_power_iter):
+def test_beamformers(n_fft):
 
     global mix, ref, ref1, ref2, ref_mic
 
@@ -62,20 +61,29 @@ def test_beamformers(n_fft, n_power_iter):
 
     m = min(ref.shape[-1], y.shape[-1])
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
-    print(f"\nMWF   SDR", sdr)
+    print(f"\nMWF     SDR", sdr)
 
 
     # -------------------------
     # MVDR part 
-    #rtf = torchiva.compute_mvdr_rtf_eigh(R_noise, R_tgt, ref_mic=ref_mic, power_iterations=n_power_iter)
-    rtf = torchiva.compute_mvdr_rtf_eigh(R_tgt, R_noise, ref_mic=ref_mic, power_iterations=n_power_iter)
+    rtf = torchiva.compute_mvdr_rtf_eigh(R_tgt, R_noise, ref_mic=ref_mic, power_iterations=15)
     mvdr = torchiva.compute_mvdr_bf(R_noise, rtf)
     Y = torch.einsum("...cfn,...sfc->...sfn", X, mvdr.conj())
     y = stft.inv(Y)
     
     m = min(ref.shape[-1], y.shape[-1])
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
-    print(f"MVDR  SDR", sdr)
+    print(f"MVDRpi  SDR", sdr)
+
+
+    rtf = torchiva.compute_mvdr_rtf_eigh(R_tgt, R_noise, ref_mic=ref_mic, power_iterations=None)
+    mvdr = torchiva.compute_mvdr_bf(R_noise, rtf)
+    Y = torch.einsum("...cfn,...sfc->...sfn", X, mvdr.conj())
+    y = stft.inv(Y)
+    
+    m = min(ref.shape[-1], y.shape[-1])
+    sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
+    print(f"MVDRgev SDR", sdr)
 
 
     # -------------------------
@@ -86,7 +94,7 @@ def test_beamformers(n_fft, n_power_iter):
     
     m = min(ref.shape[-1], y.shape[-1])
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
-    print(f"MVDR2 SDR", sdr)
+    print(f"MVDRscm SDR", sdr)
 
 
     # -------------------------
@@ -97,4 +105,4 @@ def test_beamformers(n_fft, n_power_iter):
 
     m = min(ref.shape[-1], y.shape[-1])
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
-    print(f"GEV   SDR", sdr)
+    print(f"GEV     SDR", sdr)
