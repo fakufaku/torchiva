@@ -19,11 +19,11 @@ ref_mic=1
 with open(Path("wsj1_6ch") / "dev93" / "mixinfo_noise.json") as f:
     mixinfo = json.load(f)
 
-info = mixinfo["00222"]
-dtp = torch.float64
+info = mixinfo["00224"]
+dtp = torch.float32
 
-#mix, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_mixed_noise_reverb']).parts[-4:])))
-mix, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_mixed_reverberant']).parts[-4:])))
+mix, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_mixed_noise_reverb']).parts[-4:])))
+#mix, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_mixed_reverberant']).parts[-4:])))
 mix = mix.type(dtp)
 
 #if delay==0 and tap==0:
@@ -113,20 +113,22 @@ def test_overiva(n_iter, n_chan, n_src, n_fft):
     overiva = torchiva.OverIVA_IP(
         n_iter,
         n_src=2,
-        model=torchiva.models.LaplaceModel(),
+        model=torchiva.models.LaplaceModel(eps=1e-10),
         proj_back_mic=ref_mic,
-        eps=None,
+        eps=1e-6,
     )
 
     X = stft(x)
 
-    Y = overiva(X)
+    #Y = overiva(X.type(torch.complex128), verbose=True).type(torch.complex64)
+    Y = overiva(X, verbose=True)
     y = stft.inv(Y)
 
     m = min(ref.shape[-1], y.shape[-1])
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
 
-    print(f"\nOverIVA  iter:{n_iter:.0f} n_chan:{n_chan:.0f} n_src:{n_src:.0f} SDR", sdr)
+    print(f"\nOverIVA  iter:{n_iter:.0f} n_chan:{n_chan:.0f} n_src:{n_src:.0f}", end=" ")
+    print("SDR", sdr, "SIR", sir)
 
 
     #Y = pra.bss.auxiva(

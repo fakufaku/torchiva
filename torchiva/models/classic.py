@@ -6,11 +6,10 @@ from typing import Optional
 import torch as pt
 
 from ..linalg import mag_sq
-from .base import SourceModelBase
 from .parameters import eps_models
 
 
-class LaplaceModel(SourceModelBase):
+class LaplaceModel(pt.nn.Module):
     def __init__(self, eps: Optional[float] = None):
         super().__init__()
         self._eps = eps if eps is not None else eps_models["laplace"]
@@ -27,8 +26,8 @@ class LaplaceModel(SourceModelBase):
             mag_sq = X.real.square() + X.imag.square()
         else:
             mag_sq = X.square()
-        denom = 2.0 * pt.sqrt(mag_sq.sum(dim=-2))
-        _, r = pt.broadcast_tensors(X, denom[..., None, :])
+        denom = 2.0 * pt.sqrt(mag_sq.sum(dim=-2, keepdim=True))
+        r = pt.broadcast_to(denom, X.shape)
 
         r_inv = 1.0 / pt.clamp(r, min=self._eps)
         return r_inv
@@ -55,7 +54,7 @@ class GaussModel(pt.nn.Module):
         return r_inv
 
 
-class NMFModel(SourceModelBase):
+class NMFModel(pt.nn.Module):
     def __init__(self, n_basis: Optional[int] = 2, eps: Optional[float] = None):
         super().__init__()
         self._eps = eps if eps is not None else eps_models["nmf"]
