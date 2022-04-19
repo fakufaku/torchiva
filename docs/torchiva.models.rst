@@ -60,14 +60,6 @@ torchiva.models.parameters module
    :undoc-members:
    :show-inheritance:
 
-torchiva.models.simple module
------------------------------
-
-.. automodule:: torchiva.models.simple
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Module contents
 ---------------
 

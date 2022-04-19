@@ -170,7 +170,7 @@ class MVDRBeamformer(BFBase):
         A function that is given one spectrogram and returns 2 or 3 masks
         of the same size as the input.
         When 3 masks (1 for target and the rest 2 for noise) are etimated,
-        they are utilized as in [1]_
+        they are utilized as in [10]_
     ref_mic: int, optional
         Reference channel (default: ``0``)
     eps: float, optional
@@ -178,9 +178,9 @@ class MVDRBeamformer(BFBase):
         and the like numerically stable (default:``1e-5``).
     mvdr_type: str, optional
         The way to obtain the MVDR weight.
-        If set to 'stv', relative transfer function is computed 
+        If set to ``rtf``, relative transfer function is computed 
         to obtain MVDR. If set to 'scm', MVDR weight is obtained 
-        directly with spatial covariance matrices [2]_ (default: `stv`).
+        directly with spatial covariance matrices [11]_ (default: ``rtf``).
     n_power_iter: int, optional
         Use the power iteration method to compute the relative
         transfer function instead of the full generalized
@@ -205,11 +205,11 @@ class MVDRBeamformer(BFBase):
 
     References
     ----------
-    .. [1] C. Boeddeker et al., 
-        "CONVOLUTIVE TRANSFER FUNCTION INVARIANT SDR TRAINING CRITERIA FOR MULTI-CHANNEL REVERBERANT SPEECH SEPARATION",
+    .. [10] C. Boeddeker et al., 
+        "Convolutive Transfer Function Invariant SDR training criteria for Multi-Channel Reverberant Speech Separation",
         ICASSP, 2021.
 
-    .. [2] Mehrez Souden, Jacob Benesty, and Sofiene Affes,
+    .. [11] Mehrez Souden, Jacob Benesty, and Sofiene Affes,
         "On optimal frequency-domain multichannel linear filtering for noise reduction",
         IEEE Trans. on audio, speech, and lang. process., 2009.
 
@@ -220,7 +220,7 @@ class MVDRBeamformer(BFBase):
         mask_model: torch.nn.Module,
         ref_mic: Optional[int] = 0,
         eps: Optional[float] = 1e-5,
-        mvdr_type: Optional[str] = "stv",
+        mvdr_type: Optional[str] = "rtf",
         n_power_iter: Optional[int] = None,
     ):
         super().__init__(
@@ -251,11 +251,7 @@ class MVDRBeamformer(BFBase):
             n_power_iter=n_power_iter,
         )
 
-        # remove the DC
-        #X = X[..., 1:, :]
-
         # compute the masks (..., n_src, n_masks, n_freq, n_frames)
-        #X.requires_grad=True
         masks = mask_model(X[..., ref_mic, :, :])
 
         n_masks = masks.shape[-3]
@@ -268,7 +264,7 @@ class MVDRBeamformer(BFBase):
                 for mask in masks
             ]
 
-            if mvdr_type == 'stv':
+            if mvdr_type == 'rtf':
                 # compute the relative transfer function
                 rtf = compute_mvdr_rtf_eigh(
                     R_tgt, R_noise, ref_mic=ref_mic, power_iterations=n_power_iter,
@@ -302,16 +298,12 @@ class MVDRBeamformer(BFBase):
         # compute output
         Y = torch.einsum("...cfn,...sfc->...sfn", X, bf.conj())
 
-        # add back DC offset
-        #pad_shape = Y.shape[:-2] + (1,) + Y.shape[-1:]
-        #Y = torch.cat((Y.new_zeros(pad_shape), Y), dim=-2)
-
         return Y
 
 
 class MWFBeamformer(BFBase):
     """
-    Implementation of the MWF beamformer described in [3]_
+    Implementation of the MWF beamformer described in [12]_
 
     Parameters
     ----------
@@ -345,9 +337,9 @@ class MWFBeamformer(BFBase):
 
     References
     ----------
-    .. [1] Y. Masuyama et al., 
-    "CONSISTENCY-AWARE MULTI-CHANNEL SPEECH ENHANCEMENT USING DEEP NEURAL NETWORKS", 
-    ICASSP 2020.
+    .. [12] Y. Masuyama et al., 
+        "Consistency-aware multi-channel speech enhancement using deep neural networks", 
+        ICASSP, 2020.
 
     """
 
@@ -383,9 +375,6 @@ class MWFBeamformer(BFBase):
             time_invariant=time_invariant,
         )
 
-        # remove the DC
-        #X = X[..., 1:, :]
-
         # compute the masks (..., n_src, n_masks, n_freq, n_frames)
         masks = mask_model(X[..., ref_mic, :, :])
 
@@ -420,10 +409,6 @@ class MWFBeamformer(BFBase):
 
             # compute output
             Y = torch.einsum("...cfn,...sfnc->...sfn", X, bf.conj())
-
-        # add back DC offset
-        #pad_shape = Y.shape[:-2] + (1,) + Y.shape[-1:]
-        #Y = torch.cat((Y.new_zeros(pad_shape), Y), dim=-2)
 
         return Y
 

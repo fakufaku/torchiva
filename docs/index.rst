@@ -1,5 +1,5 @@
 .. torchiva documentation master file, created by
-   sphinx-quickstart on Tue Apr 12 14:48:04 2022.
+   sphinx-quickstart on Tue Apr 19 18:43:40 2022.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
@@ -10,9 +10,10 @@ Welcome to torchiva's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+
 .. include:: ../README.rst
    :start-line: 1
-   :end-line: 45
+   :end-line: 50
 
 .. automodule:: torchiva
 
@@ -28,19 +29,17 @@ API
 
 .. toctree::
    :maxdepth: 2
-   :caption: Beamforming algorithms:
-   :numbered:
-
-   bf
-
-.. toctree::
-   :maxdepth: 2
    :caption: Dereverberation algorithms:
    :numbered:
 
    derev
 
+.. toctree::
+   :maxdepth: 2
+   :caption: Beamforming algorithms:
+   :numbered:
 
+   bf
 
 
 Indices and tables

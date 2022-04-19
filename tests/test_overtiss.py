@@ -27,13 +27,6 @@ mix, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_
 #mix, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_mixed_reverberant']).parts[-4:])))
 mix = mix.type(dtp)
 
-#if delay==0 and tap==0:
-#    ref1, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_image_reverberant'][0]).parts[-4:])))
-#    ref2, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_image_reverberant'][1]).parts[-4:])))
-#else:
-#    ref1, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_image_anechoic'][0]).parts[-4:])))
-#    ref2, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_image_anechoic'][1]).parts[-4:])))
-
 ref1, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_image_anechoic'][0]).parts[-4:])))
 ref2, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_image_anechoic'][1]).parts[-4:])))
 ref1 = ref1.type(dtp)
@@ -84,16 +77,6 @@ def test_overtiss(n_iter, delay, tap, n_chan, n_src, n_fft):
     print(f"\nOverTISS  iter:{n_iter:.0f} delay:{delay:.0f} tap:{tap:.0f} n_chan:{n_chan:.0f} n_src:{n_src:.0f} SDR", sdr)
 
 
-    # change source model in forward call
-    #Y = overtiss(X, model=torchiva.models.NMFModel())
-    #y = stft.inv(Y)
-
-    #m = min(ref.shape[-1], y.shape[-1])
-    #sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
-
-    #print(f"\nOverTISS  iter:{n_iter:.0f} delay:{delay:.0f} tap:{tap:.0f} n_chan:{n_chan:.0f} n_src:{n_src:.0f} SDR", sdr)
-
-
 @pytest.mark.parametrize(
     "n_iter, n_chan, n_src, n_fft",
     [
@@ -122,7 +105,6 @@ def test_overiva(n_iter, n_chan, n_src, n_fft):
 
     X = stft(x)
 
-    #Y = overiva(X.type(torch.complex128), verbose=True).type(torch.complex64)
     Y = overiva(X, verbose=False)
     y = stft.inv(Y)
 
@@ -131,31 +113,6 @@ def test_overiva(n_iter, n_chan, n_src, n_fft):
 
     print(f"\nOverIVA  iter:{n_iter:.0f} n_chan:{n_chan:.0f} n_src:{n_src:.0f}", end=" ")
     print("SDR", sdr, "SIR", sir)
-
-
-    #Y = pra.bss.auxiva(
-    #    np.transpose(X.cpu().numpy(), [2,1,0]),
-    #    n_src=2,
-    #    n_iter=n_iter,
-    #    proj_back=True,
-    #    model="laplace",
-    #)
-    #Y = torch.from_numpy(Y).transpose(-1, -3).type_as(X)
-    #y = stft.inv(Y)
-
-    #m = min(ref.shape[-1], y.shape[-1])
-    #sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
-
-    #print(f"\nOverIVA_pra  iter:{n_iter:.0f} n_chan:{n_chan:.0f} n_src:{n_src:.0f} SDR", sdr)
-
-    # change source model in forward call
-    #Y = overiva(X, model=torchiva.models.NMFModel())
-    #y = stft.inv(Y)
-
-    #m = min(ref.shape[-1], y.shape[-1])
-    #sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
-
-    #print(f"\nOverIVA iter:{n_iter:.0f} n_chan:{n_chan:.0f} n_src:{n_src:.0f} SDR", sdr)
 
 
 @pytest.mark.parametrize(
@@ -318,18 +275,12 @@ def check_all():
             #print("iva", sdr.mean())
 
             
-            #print(hasattr(overtiss.model, "reset"))
-            
-
             if n_chan == 2:
                 Y = ip2(X)
                 y = stft.inv(Y)
                 m = min(ref.shape[-1], y.shape[-1])
                 sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
                 ip2_sdr += sdr.mean().cpu().numpy()
-
-        #if idx==21:
-        #    break
 
     if n_chan == 2:
         print(f"\nOverTISS {overtiss_sdr/(idx+1):.2f}  OverIVA {overiva_sdr/(idx+1):.2f}  IP2 {ip2_sdr/(idx+1):.2f}")
