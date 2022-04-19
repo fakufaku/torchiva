@@ -11,5 +11,5 @@ dependencies:
   - sox
   - pip
   - pip:
-      - fast-bss-eval
+      - fast-bss-eval==0.1.2
       - tqdm

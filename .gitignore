@@ -3,3 +3,5 @@
 *__pycache__
 docs/_build
 wsj1_6ch
+configs/
+checkpoints/

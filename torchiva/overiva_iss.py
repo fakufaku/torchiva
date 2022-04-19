@@ -1,4 +1,4 @@
-# Copyright (c) 2022 Robin Scheibler
+# Copyright (c) 2022 Robin Scheibler, Kohei Saijo
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal

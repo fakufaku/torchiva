@@ -1,3 +1,23 @@
+# Copyright (c) 2022 Robin Scheibler, Kohei Saijo
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 from typing import Optional
 import torch
 from .linalg import eigh, solve_loaded, bmm, hermite, multiply
@@ -232,12 +252,13 @@ class MVDRBeamformer(BFBase):
         )
 
         # remove the DC
-        X = X[..., 1:, :]
+        #X = X[..., 1:, :]
 
         # compute the masks (..., n_src, n_masks, n_freq, n_frames)
+        #X.requires_grad=True
         masks = mask_model(X[..., ref_mic, :, :])
 
-        n_masks = mask.shape[-3]
+        n_masks = masks.shape[-3]
         masks = [masks[..., i, :, :] for i in range(n_masks)]
 
         if n_masks == 2:
@@ -282,8 +303,8 @@ class MVDRBeamformer(BFBase):
         Y = torch.einsum("...cfn,...sfc->...sfn", X, bf.conj())
 
         # add back DC offset
-        pad_shape = Y.shape[:-2] + (1,) + Y.shape[-1:]
-        Y = torch.cat((Y.new_zeros(pad_shape), Y), dim=-2)
+        #pad_shape = Y.shape[:-2] + (1,) + Y.shape[-1:]
+        #Y = torch.cat((Y.new_zeros(pad_shape), Y), dim=-2)
 
         return Y
 
@@ -295,10 +316,8 @@ class MWFBeamformer(BFBase):
     Parameters
     ----------
     mask_model: torch.nn.Module
-        A function that is given one spectrogram and returns 2 or 3 masks
+        A function that is given one spectrogram and returns 2 masks
         of the same size as the input.
-        When 3 masks (1 for target and the rest 2 for noise) are etimated,
-        they are utilized as in [1]_
     ref_mic: int, optional
         Reference channel (default: ``0``)
     eps: float, optional
@@ -358,11 +377,14 @@ class MWFBeamformer(BFBase):
     ):
 
         mask_model, ref_mic, eps, time_invariant = self._set_params(
-            mask_model, ref_mic, eps, time_invariant,
+            mask_model=mask_model, 
+            ref_mic=ref_mic, 
+            eps=eps, 
+            time_invariant=time_invariant,
         )
 
         # remove the DC
-        X = X[..., 1:, :]
+        #X = X[..., 1:, :]
 
         # compute the masks (..., n_src, n_masks, n_freq, n_frames)
         masks = mask_model(X[..., ref_mic, :, :])
@@ -400,8 +422,8 @@ class MWFBeamformer(BFBase):
             Y = torch.einsum("...cfn,...sfnc->...sfn", X, bf.conj())
 
         # add back DC offset
-        pad_shape = Y.shape[:-2] + (1,) + Y.shape[-1:]
-        Y = torch.cat((Y.new_zeros(pad_shape), Y), dim=-2)
+        #pad_shape = Y.shape[:-2] + (1,) + Y.shape[-1:]
+        #Y = torch.cat((Y.new_zeros(pad_shape), Y), dim=-2)
 
         return Y
 
@@ -415,10 +437,8 @@ class GEVBeamformer(BFBase):
     Parameters
     ----------
     mask_model: torch.nn.Module
-        A function that is given one spectrogram and returns 2 or 3 masks
+        A function that is given one spectrogram and returns 2 masks
         of the same size as the input.
-        When 3 masks (1 for target and the rest 2 for noise) are etimated,
-        they are utilized as in [1]_
     ref_mic: int, optional
         Reference channel (default: ``0``)
     eps: float, optional
@@ -464,24 +484,21 @@ class GEVBeamformer(BFBase):
     ):
 
         mask_model, ref_mic, eps = self._set_params(
-            mask_model, ref_mic, eps,
+            mask_model=mask_model, 
+            ref_mic=ref_mic, 
+            eps=eps,
         )
 
         # Compute the mask
-        mask = mask_model(X[..., ref_mic, :, :])
+        masks = mask_model(X[..., ref_mic, :, :])
 
-        # (batch, sources, channels, freq, frames)
-        targets = multiply(X[..., None, :, :, :], mask[..., :, None, :, :])
-        noise = multiply(X[..., None, :, :, :], (1.0 - mask[..., :, None, :, :]))
+        covmat_masks = [masks[..., i, :, :] for i in range(2)]
 
-        # (batch, sources, channels, freq, frames)
-        targets = targets.transpose(-3, -2)
-        noise = noise.transpose(-3, -2)
-
-        # create the covariance matrices
-        # (batch, sources, freq, channels, channels)
-        R_target = bmm(targets, hermite(targets)) / targets.shape[-1]
-        R_noise = bmm(noise, hermite(noise)) / targets.shape[-1]
+        # compute the covariance matrices
+        R_target, R_noise = [
+            torch.einsum("...sfn,...cfn,...dfn->...sfcd", mask, X, X.conj())
+            for mask in covmat_masks
+        ]
 
         # Compute the beamformers
         gev_bf = compute_gev_bf(R_target, R_noise, ref_mic=ref_mic)

@@ -1,11 +1,11 @@
-# Copyright 2021 Robin Scheibler, Kohei Saijo
+# Copyright (c) 2022 Robin Scheibler, Kohei Saijo
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the "Software"), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
-# of the Software, and to permit persons to whom the Software is furnished to do
-# so, subject to the following conditions:
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
 #
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
@@ -30,8 +30,8 @@ from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 
-from data_module import WSJDataModule, WSJ6chDataModule, LibriCSSDataModule
-from separation_model import SeparationModel, UnsupervisedDOAModel, UnsupervisedLibriModel
+from data_module import WSJ6chDataModule
+from separation_model import WSJModel
 
 if __name__ == "__main__":
 
@@ -66,11 +66,6 @@ if __name__ == "__main__":
         monitor="val_loss", save_top_k=-1, mode="min"
     )
 
-    try:
-        return_mic_position=config["training"]["return_mic_position"]
-    except KeyError:
-        return_mic_position=False
-
     # load the dataset
     train_n_batch_sizes = (
         config["training"]["n_batch_sizes"]
@@ -83,12 +78,9 @@ if __name__ == "__main__":
         else None
     )
 
-    
-    if "MVDR" in config["model"]["source_model"]["name"]:
-        model = MaskBasedMVDRBeamformingModelWSJ(config)
-    else:
-        model = UnsupervisedDOAModel(config)
 
+    model = WSJModel(config)
+    
     dm = WSJ6chDataModule(
         batch_size=config["training"]["batch_size"],
         shuffle=config["training"]["shuffle"],
@@ -102,7 +94,6 @@ if __name__ == "__main__":
         max_len_s=config["training"]["max_len_s"],
         ref_is_reverb=config["training"]["ref_is_reverb"],
         noiseless=config["training"]["noiseless"],
-        return_mic_position=return_mic_position,
     )
     
     # create a logger
@@ -117,7 +108,7 @@ if __name__ == "__main__":
         max_epoch = 100
     
     trainer = pl.Trainer(
-        deterministic=deterministic,
+        deterministic=False,
         gpus=[args.gpu],
         check_val_every_n_epoch=1,
         default_root_dir=root_dir,

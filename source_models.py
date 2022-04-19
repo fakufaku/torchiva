@@ -1,11 +1,11 @@
-# Copyright 2021 Robin Scheibler, Kohei Saijo
+# Copyright (c) 2022 Robin Scheibler, Kohei Saijo
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy of
-# this software and associated documentation files (the "Software"), to deal in
-# the Software without restriction, including without limitation the rights to
-# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
-# of the Software, and to permit persons to whom the Software is furnished to do
-# so, subject to the following conditions:
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
 #
 # The above copyright notice and this permission notice shall be included in all
 # copies or substantial portions of the Software.
@@ -71,45 +71,6 @@ class BaseModule(nn.Module):
     @abstractmethod
     def apply_constraints(self):
         raise NotImplementedError
-
-
-class ConvTasNet(SourceModelBase, nn.Module):
-    def __init__(
-        self,
-        num_sources: int = 1, 
-        enc_kernel_size: int = 16, 
-        enc_num_feats: int = 512, 
-        msk_kernel_size: int = 3,
-        msk_num_feats: int = 128, 
-        msk_num_hidden_feats: int = 512,
-        msk_num_layers: int = 8, 
-        msk_num_stacks: int = 3, 
-        msk_activate: str = 'sigmoid',
-    ):
-        super().__init__()
-
-        self.tasnet = torchaudio.models.ConvTasNet(
-            num_sources=num_sources, 
-            enc_kernel_size=enc_kernel_size, 
-            enc_num_feats=enc_num_feats, 
-            msk_kernel_size=msk_kernel_size,
-            msk_num_feats=msk_num_feats, 
-            msk_num_hidden_feats=msk_num_hidden_feats,
-            msk_num_layers=msk_num_layers, 
-            msk_num_stacks=msk_num_stacks, 
-            msk_activate=msk_activate,
-        )
-
-    def forward(self, x):
-        batch_shape = x.shape[:-1]
-        n_samples = x.shape[-1:][0]
-
-        x = x.reshape((-1,1,n_samples))
-
-        y = self.tasnet(x)
-        y = y.reshape(batch_shape + (n_samples,))
-
-        return y
 
 
 class BLSTM_FC(SourceModelBase, nn.Module):

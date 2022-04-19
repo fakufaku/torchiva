@@ -27,16 +27,13 @@ This supposes `anaconda <https://www.anaconda.com/products/individual>`_ is inst
     conda activate torchiva
 
     # BSS example
-    python ./example.py
-
-    # BSS + dereverberation example
-    python ./example_derev.py
+    python ./example.py DATA_PATH ALGORITHM
 
 
 License
 -------
 
-2021 (c) Robin Scheibler, LINE Corporation
+2022 (c) Robin Scheibler, LINE Corporation
 All of this code is released under `MIT License <https://opensource.org/licenses/MIT>`_
 
 
