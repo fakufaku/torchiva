@@ -1,16 +1,12 @@
 
-OverISS_T
+T_ISS
 ~~~~~~~~~~
-.. autoclass:: torchiva.OverISS_T
+.. autoclass:: torchiva.T_ISS
 
-OverIVA_IP
+AuxIVA_IP
 ~~~~~~~~~~
-.. autoclass:: torchiva.OverIVA_IP
+.. autoclass:: torchiva.AuxIVA_IP
 
 AuxIVA_IP2
 ~~~~~~~~~~
 .. autoclass:: torchiva.AuxIVA_IP2
-
-FIVE
-~~~~~~~~~~
-.. autoclass:: torchiva.FIVE

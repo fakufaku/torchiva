@@ -113,6 +113,10 @@ class DRBSSBase(torch.nn.Module):
 
         return kwargs.values()
 
+    def _reset(self, model):
+        if hasattr(model, "reset"):
+            model.reset()
+
     @property
     def n_iter(self):
         return self._n_iter

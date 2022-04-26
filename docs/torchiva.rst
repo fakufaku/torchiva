@@ -12,6 +12,14 @@ Subpackages
 Submodules
 ----------
 
+torchiva.auxiva\_ip module
+--------------------------
+
+.. automodule:: torchiva.auxiva_ip
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 torchiva.auxiva\_ip2 module
 ---------------------------
 
@@ -84,42 +92,10 @@ torchiva.nn module
    :undoc-members:
    :show-inheritance:
 
-torchiva.overiva module
------------------------
-
-.. automodule:: torchiva.overiva
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-torchiva.overiva\_iss module
-----------------------------
-
-.. automodule:: torchiva.overiva_iss
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 torchiva.parameters module
 --------------------------
 
 .. automodule:: torchiva.parameters
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-torchiva.preprocessing module
------------------------------
-
-.. automodule:: torchiva.preprocessing
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-torchiva.processingpool module
-------------------------------
-
-.. automodule:: torchiva.processingpool
    :members:
    :undoc-members:
    :show-inheritance:
@@ -136,6 +112,14 @@ torchiva.stft module
 --------------------
 
 .. automodule:: torchiva.stft
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+torchiva.t\_iss module
+----------------------
+
+.. automodule:: torchiva.t_iss
    :members:
    :undoc-members:
    :show-inheritance:

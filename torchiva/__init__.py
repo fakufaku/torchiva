@@ -1,14 +1,12 @@
 from . import linalg, models, nn, utils
-from .auxiva_ip2 import AuxIVA_IP2
 from .base import SourceModelBase, Window, window_types, DRBSSBase
 from .fftconvolve import fftconvolve
-from .five import FIVE
 from .models import GaussModel, LaplaceModel, NMFModel, source_models
 from .nn import SepAlgo
-from .overiva import OverIVA_IP
-from .overiva_iss import OverISS_T
-from .preprocessing import filter_dc
-from .processingpool import ProcessingPool
+from .auxiva_ip import AuxIVA_IP
+from .auxiva_ip2 import AuxIVA_IP2
+from .t_iss import T_ISS
+from .five import FIVE
 from .scaling import (minimum_distortion, minimum_distortion_l2_phase,
                       projection_back)
 from .beamformer import (MVDRBeamformer, MWFBeamformer, GEVBeamformer)

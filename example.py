@@ -188,4 +188,4 @@ if __name__ == "__main__":
 
     print("\n==== Separation Results ====")
     print(f"Algo: {args.algorithm.upper()},  Model: {args.source_model},  n_iter: {args.n_iter:.0f},  n_chan: {args.n_chan:.0f},  n_src: {args.n_src:.0f}")
-    print("SDR: ", sdr.to('cpu').numpy(), " | SIR: ", sir.to('cpu').numpy())
+    print("SDR: ", sdr.cpu().numpy(), " | SIR: ", sir.cpu().numpy())

@@ -123,9 +123,9 @@ def cost(model, Y, W, J=None, g=None):
     return cost
 
 
-class OverIVA_IP(DRBSSBase):
+class AuxIVA_IP(DRBSSBase):
     """
-    Over-determined independent vector analysis (IVA) with iterative projection (IP) update [5]_.
+    Independent vector analysis (IVA) with iterative projection (IP) update [5]_.
 
 
     Parameters
@@ -210,6 +210,9 @@ class OverIVA_IP(DRBSSBase):
 
         # for now, only supports determined case
         assert callable(model)
+
+        # initialize source model if NMF
+        self._reset(model)
 
         W = X.new_zeros(batch_shape + (n_freq, n_src, n_chan))
         W[:] = torch.eye(n_src, n_chan)

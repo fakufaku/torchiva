@@ -40,7 +40,7 @@ def wpe_one_iter(
     X: torch.Tensor,
     X_bar: torch.Tensor,
     model: Optional[callable] = None,
-    eps: Optional[float] = 0.0,
+    eps: Optional[float] = 1e-5,
 ) -> torch.Tensor:
     """
     Parameters
@@ -63,8 +63,9 @@ def wpe_one_iter(
 
     if model is None:
         model = wpe_default_weights
-
-    weights = model(Y)
+        weights = model(Y, eps=eps)
+    else:
+        weights = model(Y)
 
     # compute weighted statistics
     acm = torch.einsum("...fn,...cftn,...dfun->...fctdu", weights, X_bar, X_bar.conj())
@@ -75,12 +76,12 @@ def wpe_one_iter(
     xcv = xcv.reshape(batch_shape + (n_freq, Lh, n_chan))
 
     # H = torch.linalg.solve(acm + eps * torch.eye(Lh).type_as(acm), xcv)
-    H = torch.linalg.solve(acm, xcv)
+    #H = torch.linalg.solve(acm, xcv)
+    H = solve_loaded(acm, xcv, load=eps)
 
     H = H.reshape(batch_shape + (n_freq, n_chan, n_taps, n_chan))
 
     return H
-
 
 class WPE(DRBSSBase):
     """
@@ -125,9 +126,10 @@ class WPE(DRBSSBase):
             n_iter,
             n_taps=n_taps,
             n_delay=n_delay,
-            model=model,
             eps=eps,
         )
+
+        self.model = model
 
     def forward(
         self,
@@ -139,10 +141,11 @@ class WPE(DRBSSBase):
         eps: Optional[float] = None,
     ):
 
-        n_iter, n_taps, n_delay, eps = self._set_params(
+        n_iter, n_taps, n_delay, model, eps = self._set_params(
             n_iter=n_iter,
             n_taps=n_taps,
             n_delay=n_delay,
+            model=model,
             eps=eps,
         )
 
@@ -153,6 +156,8 @@ class WPE(DRBSSBase):
         X_pad = torch.nn.functional.pad(X, (n_taps + n_delay, 0))
         X_hankel = hankel_view(X_pad, n_taps + n_delay + 1)
         X_bar = X_hankel[..., : -n_delay - 1, :]  # shape (c, f, t, b)
+
+        Y = X.clone()
 
         for epoch in range(n_iter):
             H = wpe_one_iter(Y, X, X_bar, model=model, eps=eps)

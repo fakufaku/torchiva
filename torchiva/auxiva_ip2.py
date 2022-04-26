@@ -173,6 +173,9 @@ class AuxIVA_IP2(DRBSSBase):
         # for now, only supports determined case
         assert callable(model)
 
+        # initialize source model if NMF
+        self._reset(model)
+
         # only supports two channels case in IP2
         assert n_chan == 2
 

@@ -83,7 +83,8 @@ def adjust_global_scale(Y, ref):
 
 class FIVE(DRBSSBase):
     """
-    Fast independent vector extraction (FIVE) [8]_
+    Fast independent vector extraction (FIVE) [8]_.
+    FIVE extracts one source from the input signal.
 
     Parameters
     ----------
@@ -165,6 +166,9 @@ class FIVE(DRBSSBase):
 
         # for now, only supports determined case
         assert callable(model)
+
+        # initialize source model if NMF
+        self._reset(model)
 
         # remove DC part
         X = X[..., 1:, :]

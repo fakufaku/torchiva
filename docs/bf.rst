@@ -9,3 +9,7 @@ MWF beamformer
 GEV beamformer
 ~~~~~~~~~~~~~~~~
 .. autoclass:: torchiva.GEVBeamformer
+
+FIVE
+~~~~~~~~~~
+.. autoclass:: torchiva.FIVE

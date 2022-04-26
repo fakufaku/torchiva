@@ -3,7 +3,7 @@ TORCHIVA
 
 A package for blind source separation and beamforming in `pytorch <https://pytorch.org>`_ .
 
-* supports many BSS methods
+* supports many BSS and beamforming methods
 * supports memory efficient gradient computation for training neural source models
 * supports batched computations
 * can run on GPU via pytorch
@@ -33,7 +33,8 @@ This supposes `anaconda <https://www.anaconda.com/products/individual>`_ is inst
 License
 -------
 
-2022 (c) Robin Scheibler, LINE Corporation
+2022 (c) Robin Scheibler, Kohei Saijo, LINE Corporation.
+
 All of this code is released under `MIT License <https://opensource.org/licenses/MIT>`_
 
 

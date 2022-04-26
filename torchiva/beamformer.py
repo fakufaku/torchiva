@@ -162,7 +162,9 @@ def compute_gev_bf(
 
 class MVDRBeamformer(BFBase):
     """
-    DNN-based MVDR beamforming.
+    Implementation of MVDR beamformer.
+    This class is basically assumes DNN-based beamforming.
+    also supports the case of estimating three masks
 
     Parameters
     ----------
@@ -303,7 +305,8 @@ class MVDRBeamformer(BFBase):
 
 class MWFBeamformer(BFBase):
     """
-    Implementation of the MWF beamformer described in [12]_
+    Implementation of MWF beamformer described in [12]_.
+    This class is basically assumes DNN-based beamforming.
 
     Parameters
     ----------
@@ -417,7 +420,8 @@ class MWFBeamformer(BFBase):
 class GEVBeamformer(BFBase):
 
     """
-    DNN-based GEV beamforming.
+    Implementation of GEV beamformer.
+    This class is basically assumes DNN-based beamforming.
 
     Parameters
     ----------

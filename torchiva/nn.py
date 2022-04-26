@@ -26,7 +26,7 @@ from torch import nn
 
 from .five import FIVE
 from .auxiva_ip2 import AuxIVA_IP2
-from .overiva_iss import OverISS_T
+from .t_iss import T_ISS
 from .models import LaplaceModel
 from .beamformer import MVDRBeamformer, MWFBeamformer, GEVBeamformer
 from .stft import STFT
@@ -35,7 +35,7 @@ from .utils import select_most_energetic
 
 class SepAlgo(enum.Enum):
     AUXIVA_IP2 = "auxiva-ip2"
-    OVERISS_T = "overiss_t"
+    T_ISS = "tiss"
     FIVE = "five"
     MVDR = "mvdr"
     MWF = "mwf"
@@ -52,7 +52,7 @@ class BSSSeparator(nn.Module):
         n_taps: Optional[int] = 0,
         n_delay: Optional[int] = 0,
         n_src: Optional[int] = None,
-        algo: Optional[SepAlgo] = SepAlgo.OVERISS_T,
+        algo: Optional[SepAlgo] = SepAlgo.T_ISS,
         source_model: Optional[torch.nn.Module] = None,
         proj_back_mic: Optional[int] = 0,
         use_dmc: Optional[bool] = False,
@@ -77,8 +77,8 @@ class BSSSeparator(nn.Module):
         self.stft = STFT(n_fft, hop_length=hop_length, window=window)
 
         # init separator
-        if self.algo == "overiss_t":
-            self.separator = OverISS_T(
+        if self.algo == "T_ISS":
+            self.separator = T_ISS(
                 n_iter=n_iter,
                 n_taps=n_taps,
                 n_delay=n_delay,

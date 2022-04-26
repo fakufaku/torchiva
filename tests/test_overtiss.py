@@ -5,8 +5,6 @@ import torchaudio
 import json
 import pytest
 from pathlib import Path
-#import pyroomacoustics as pra 
-#import numpy as np
 import warnings
 from tqdm import tqdm
 
@@ -20,11 +18,10 @@ ref_mic=1
 with open(Path("wsj1_6ch") / "dev93" / "mixinfo_noise.json") as f:
     mixinfo = json.load(f)
 
-info = mixinfo["00224"]
+info = mixinfo["00232"]
 dtp = torch.float32
 
 mix, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_mixed_noise_reverb']).parts[-4:])))
-#mix, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_mixed_reverberant']).parts[-4:])))
 mix = mix.type(dtp)
 
 ref1, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_image_anechoic'][0]).parts[-4:])))
@@ -40,11 +37,11 @@ ref = torch.stack((ref1[ref_mic], ref2[ref_mic]),dim=0)
     [
         (50, 0, 0, 2, 2, 4096),
         (20, 0, 0, 6, 2, 4096),
-        #(50, 1, 5, 2, 2, 1024),
-        #(20, 1, 5, 6, 2, 1024),
+        (50, 1, 5, 2, 2, 1024),
+        (20, 1, 5, 6, 2, 1024),
     ],
 )
-def test_overtiss(n_iter, delay, tap, n_chan, n_src, n_fft):
+def test_tiss(n_iter, delay, tap, n_chan, n_src, n_fft):
 
     global mix, ref
 
@@ -55,15 +52,15 @@ def test_overtiss(n_iter, delay, tap, n_chan, n_src, n_fft):
         n_fft=n_fft,
     )
 
-    overtiss = torchiva.OverISS_T(
+    overtiss = torchiva.T_ISS(
         n_iter,
         n_taps=tap,
         n_delay=delay,
         n_src=2,
-        model = torchiva.models.LaplaceModel(),
+        model = torchiva.models.NMFModel(),
         proj_back_mic=ref_mic,
         use_dmc=False,
-        eps=None,
+        eps=1e-3,
     )
 
     X = stft(x)
@@ -74,17 +71,17 @@ def test_overtiss(n_iter, delay, tap, n_chan, n_src, n_fft):
     m = min(ref.shape[-1], y.shape[-1])
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
 
-    print(f"\nOverTISS  iter:{n_iter:.0f} delay:{delay:.0f} tap:{tap:.0f} n_chan:{n_chan:.0f} n_src:{n_src:.0f} SDR", sdr)
+    print(f"\nTISS  iter:{n_iter:.0f} delay:{delay:.0f} tap:{tap:.0f} n_chan:{n_chan:.0f} n_src:{n_src:.0f} SDR", sdr)
 
 
 @pytest.mark.parametrize(
     "n_iter, n_chan, n_src, n_fft",
     [
-        (50, 2, 2, 4096),
-        (20, 6, 2, 4096),
+        #(50, 2, 2, 4096),
+        #(20, 6, 2, 4096),
     ],
 )
-def test_overiva(n_iter, n_chan, n_src, n_fft):
+def test_iva(n_iter, n_chan, n_src, n_fft):
 
     global mix, ref
 
@@ -95,7 +92,7 @@ def test_overiva(n_iter, n_chan, n_src, n_fft):
         n_fft=n_fft,
     )
 
-    overiva = torchiva.OverIVA_IP(
+    overiva = torchiva.AuxIVA_IP(
         n_iter,
         n_src=2,
         model=torchiva.models.LaplaceModel(eps=1e-10),
@@ -118,7 +115,7 @@ def test_overiva(n_iter, n_chan, n_src, n_fft):
 @pytest.mark.parametrize(
     "n_iter, n_chan, n_src, n_fft",
     [
-        (50, 2, 2, 4096),
+        #(50, 2, 2, 4096),
     ],
 )
 def test_ip2(n_iter, n_chan, n_src, n_fft):
