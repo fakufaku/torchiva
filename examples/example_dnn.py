@@ -25,11 +25,11 @@ import torch
 import torchaudio
 import warnings
 
+import source_models
 import torchiva
 import fast_bss_eval
 
 REF_MIC = 0
-RTOL = 1e-5
 
 def make_batch_array(lst, adjust="min"):
 
@@ -46,54 +46,47 @@ def make_batch_array(lst, adjust="min"):
         raise NotImplementedError()
 
 
+def load_source_model(model_config, model_param_path):
+    model = source_models.get_model(**model_config)
+    model.load_state_dict(torch.load(model_param_path))
+    model.eval()
+
+    return model
+
 if __name__ == "__main__":
 
     torch.manual_seed(0)
 
-    source_models = list(torchiva.models.source_models.keys())
-
     parser = argparse.ArgumentParser(description="Separation example")
 
+    parser.add_argument(
+        "config",
+        type=Path,
+        help="Configuration file path",
+    )
     parser.add_argument(
         "dataset_dir",
         type=Path,
         help="Location of dataset",
     )
     parser.add_argument(
-        "algorithm",
-        type=str,
-        choices=["overiss_t", "overiva_ip", "ip2", "five"],
-        help="BSS algorithm",
+        "model_path",
+        type=Path,
+        help="Model parameter path",
     )
     parser.add_argument(
         "-r",
         "--room",
-        default="00221",
+        default="00222",
         metavar="ROOMS",
         type=str,
         help="Room number (Sample number)",
     )
-    parser.add_argument("--n_fft", type=int, default=4096, help="STFT FFT size")
-    parser.add_argument("--hop", type=int, default=None, help="STFT hop length size")
-    parser.add_argument(
-        "--n_iter", default=20, type=int, help="Number of iterations"
-    )
-    parser.add_argument("--delay", type=int, default=0, help="Delay in dereverberation")
-    parser.add_argument("--tap", type=int, default=0, help="Tap length in dereverberation")
-    parser.add_argument("--n_src", type=int, default=2, help="Number of sources in a mixture")
-    parser.add_argument("--n_chan", type=int, default=None, help="Number of channels used for separation")
 
-    parser.add_argument(
-        "-d",
-        "--source_model",
-        default=source_models[1],
-        #choices=source_models,
-        choices=["laplace", "gauss", "nmf"],
-        type=str,
-        help="Source model, default: gauss",
-    )
-    
     args = parser.parse_args()
+
+    with open(args.config, "r") as f:
+        config = json.load(f)
 
     metafilename = args.dataset_dir / "dev93" / "mixinfo_noise.json"
     with open(metafilename, "r") as f:
@@ -103,21 +96,14 @@ if __name__ == "__main__":
     rt60 = info["rir_info_t60"]
     print(f"Using rooms {args.room} with RT60 {rt60:.4f}")
 
-    if args.n_chan is None:
-        args.n_chan = args.n_src
-
-    if args.algorithm != "overiss_t" and args.tap > 0:
-        warnings.warn(f"``tap={args.tap}`` is specified, but dereverberation is not performed in ``{args.algorithm}``.")
-
-
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     # choose and read the audio files
     # can be changed to any multi-channel mixture and corresponding reference signals
-
     # mix: shape (n_chan, n_sample)
     mix, fs = torchaudio.load(args.dataset_dir / (Path("").joinpath(*Path(info['wav_mixed_noise_reverb']).parts[-4:])))
     
-    if args.delay==0 and args.tap==0:
+    if config["training"]["ref_is_reverb"]:
         # reverberant clean references
         ref1, fs = torchaudio.load(args.dataset_dir / (Path("").joinpath(*Path(info['wav_dpath_image_reverberant'][0]).parts[-4:])))
         ref2, fs = torchaudio.load(args.dataset_dir / (Path("").joinpath(*Path(info['wav_dpath_image_reverberant'][1]).parts[-4:])))
@@ -129,63 +115,40 @@ if __name__ == "__main__":
     # ref: shape (n_src, n_sample)
     ref = torch.stack((ref1[REF_MIC], ref2[REF_MIC]),dim=0)
 
-    stft = torchiva.STFT(
-        n_fft=args.n_fft,
-        hop_length=args.hop, 
+    source_model = load_source_model(config["model"]["source_model"], args.model_path)
+
+    n_iter = config["model"]["n_iter"]
+    n_chan, n_src = config["training"]["n_chan"], config["training"]["n_src"]
+    assert n_src <= n_chan
+
+    separator = torchiva.nn.BSSSeparator(
+        config["model"]["n_fft"],
+        n_iter,
+        hop_length=config["model"]["hop_length"],
+        n_taps=config["model"]["n_taps"],
+        n_delay=config["model"]["n_delay"],
+        n_src=n_src,
+        algo=config["algorithm"],
+        source_model=source_model, 
+        proj_back_mic=config["model"]["ref_mic"],
+        use_dmc=config["model"]["use_dmc"],
+        n_power_iter=config["model"]["n_power_iter"],
     )
 
-    source_model = torchiva.models.source_models[args.source_model]
-
-    if args.algorithm == "overiss_t":
-        separator = torchiva.OverISS_T(
-            n_iter=args.n_iter,
-            n_taps=args.tap,
-            n_delay=args.delay,
-            n_src=args.n_src,
-            model=source_model,
-            proj_back_mic=REF_MIC,
-            eps=1e-5,
-        )
-    elif args.algorithm == "overiva_ip":
-        separator = torchiva.OverIVA_IP(
-            n_iter=args.n_iter,
-            n_src=args.n_src,
-            model=source_model,
-            proj_back_mic=REF_MIC,
-            eps=1e-5,
-        )
-    elif args.algorithm == "ip2":
-        assert (args.n_chan==2 and args.n_src==2)
-        separator = torchiva.AuxIVA_IP2(
-            n_iter=args.n_iter,
-            model=source_model,
-            proj_back_mic=REF_MIC,
-            eps=1e-5,
-        )
-    elif args.algorithm == "five":
-        if args.n_src != 1:
-            warnings.warn(f"``n_src={args.tap}`` is specified, but ``five`` extracts only 1 source.")
-
-        separator = torchiva.FIVE(
-            n_iter=args.n_iter,
-            model=source_model,
-            proj_back_mic=REF_MIC,
-            eps=1e-5,
-            n_power_iter=None,
-        )
+    separator.to(device)
+    mix, ref = mix.to(device), ref.to(device)
 
 
-    X = stft(mix[..., :args.n_chan, :])
-    Y = separator(X)
-    y = stft.inv(Y)
+    with torch.no_grad():
+        y = separator(mix[..., :n_chan, :])
 
-    # if args.n_src > n_ref, select most energetic n_ref sources
-    if y.shape[-2] > ref.shape[-2]:
-        y = torchiva.select_most_energetic(y, num=ref.shape[-2], dim=-2, dim_reduc=-1)
+        # if args.n_src > n_ref, select most energetic n_ref sources
+        if y.shape[-2] > ref.shape[-2]:
+            y = torchiva.select_most_energetic(y, num=ref.shape[-2], dim=-2, dim_reduc=-1)
 
-    m = min(ref.shape[-1], y.shape[-1])
-    sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
+        m = min(ref.shape[-1], y.shape[-1])
+        sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
 
     print("\n==== Separation Results ====")
-    print(f"Algo: {args.algorithm.upper()},  Model: {args.source_model},  n_iter: {args.n_iter:.0f},  n_chan: {args.n_chan:.0f},  n_src: {args.n_src:.0f}")
+    print(f"n_iter: {n_iter:.0f},  n_chan: {n_chan:.0f},  n_src: {n_src:.0f}")
     print("SDR: ", sdr.cpu().numpy(), " | SIR: ", sir.cpu().numpy())

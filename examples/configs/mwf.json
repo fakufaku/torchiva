@@ -1,0 +1,47 @@
+{
+    "name": "mwf",
+    "checkpoints": "./checkpoints",
+    "algorithm" : "mwf",
+    "training": {
+        "seed": 0,
+        "weight_decay": 0,
+        "lr": 0.001,
+        "lr_scheduler_kwargs": { "mode": "min", "factor": 0.5, "patience": 3 },
+        "autoclip_p": 10,
+        "batch_size": 8,
+        "max_len_s": 7,
+        "n_src":2,
+        "n_chan":6,
+        "shuffle": true,
+        "shuffle_ref": false,
+        "shuffle_channels" : true,
+        "n_channels": {"6": 37416},
+        "loss_type" : "cisdr",
+        "ref_is_reverb" : false,
+        "noiseless": false,
+        "return_mic_position":true,
+        "max_epoch": 3
+    },
+    "model": {
+        "n_fft": 4096,
+        "hop_length": 1024,
+        "n_iter": 20,
+        "n_taps" : 0,
+        "n_delay" : 0, 
+        "n_power_iter": 10,
+        "use_dmc": false,
+        "ref_mic": 0,
+        "source_model": {
+            "name": "MaskMVDRSupport",
+            "kwargs": {
+                "n_src": 2,
+                "n_masks": 2,
+                "n_input":2049,
+                "n_hidden":256,
+                "dropout_p":0.2,
+                "n_layers":3,
+                "eps":1e-3
+            }
+        }
+    }
+}

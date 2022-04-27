@@ -98,7 +98,7 @@ class WSJModel(pl.LightningModule):
             source_model=source_model, 
             proj_back_mic=config["model"]["ref_mic"],
             use_dmc=config["model"]["use_dmc"],
-            n_power_iter=n_power_iter
+            n_power_iter=n_power_iter,
         )
 
 
@@ -183,7 +183,7 @@ class WSJModel(pl.LightningModule):
             if loss_type != 'val_loss':
                 self.log(f"val_{loss_type}", loss_value)
 
-
+    '''
     def on_test_epoch_start(self):
         self.on_validation_epoch_start()
 
@@ -196,7 +196,7 @@ class WSJModel(pl.LightningModule):
         :param outputs: list of individual outputs of each validation step.
         """
         self.validation_epoch_end()
-
+    '''
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
             self.parameters(), lr=self.lr, weight_decay=self.weight_decay

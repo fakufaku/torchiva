@@ -1,7 +1,7 @@
 *.wav
 *.egg-info
 *__pycache__
-docs/_build
+.pytest_cache
 wsj1_6ch
-configs/
 checkpoints/
+model_params/

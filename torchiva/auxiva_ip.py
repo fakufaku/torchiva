@@ -126,6 +126,8 @@ def cost(model, Y, W, J=None, g=None):
 class AuxIVA_IP(DRBSSBase):
     """
     Independent vector analysis (IVA) with iterative projection (IP) update [5]_.
+    
+    We do not support ILRMA-T with IP updates.
 
 
     Parameters
@@ -160,6 +162,14 @@ class AuxIVA_IP(DRBSSBase):
     ----------
     Y: torch.Tensor, ``shape (..., n_src, n_freq, n_frames)``
         The separated signal in STFT-domain
+
+
+    Note
+    ----
+    This class can handle two BSS methods with IP update rule depending on the specified arguments:
+        * AuxIVA-IP: ``n_chan==n_src, model=LaplaceMoldel() or GaussMoldel()``
+        * ILRMA-IP: ``n_chan==n_src, model=NMFModel()``
+        * OverIVA_IP [6]_: ``n_taps=0, n_delay=0, n_chan==n_src, model=NMFModel()``
 
 
     References

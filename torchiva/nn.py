@@ -77,7 +77,7 @@ class BSSSeparator(nn.Module):
         self.stft = STFT(n_fft, hop_length=hop_length, window=window)
 
         # init separator
-        if self.algo == "T_ISS":
+        if self.algo == "tiss":
             self.separator = T_ISS(
                 n_iter=n_iter,
                 n_taps=n_taps,
@@ -111,7 +111,7 @@ class BSSSeparator(nn.Module):
                 self.source_model,
                 ref_mic=proj_back_mic,
                 eps=eps,
-                mvdr_type="stv",
+                mvdr_type="rtf",
                 n_power_iter=n_power_iter,
             )
 
@@ -167,10 +167,6 @@ class BSSSeparator(nn.Module):
 
         # iSTFT
         y = self.stft.inv(Y)  # (n_samples, n_channels)
-
-        # in case we separated too many sources, select those that have most energy
-        if self.n_src is not None and y.shape[-2] > self.n_src:
-            y = select_most_energetic(y, num=self.n_src, dim=-2, dim_reduc=-1)
 
         # zero-padding if necessary 
         if y.shape[-1] < x.shape[-1]:

@@ -1,0 +1,3 @@
+WPE
+~~~
+.. autoclass:: torchiva.WPE
