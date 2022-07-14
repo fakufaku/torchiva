@@ -29,7 +29,6 @@ import torchaudio
 import torchiva
 import yaml
 
-import source_models
 from dataloader import WSJ1SpatialDataset
 
 REF_MIC = 0
