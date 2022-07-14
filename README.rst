@@ -54,6 +54,8 @@ Training
 We provide some simple training scripts.
 We support training of **T-ISS**, **MWF**, **MVDR**, **GEV**::
 
+    cd examples
+
     # install some modules necessary for training
     pip install -r requirements.txt
 
@@ -70,11 +72,11 @@ Test your trained model with checkpoint from epoch 128::
 
 Export the trained model for later use::
 
-    python ./export_model.py models/tiss checkpoints/tiss_delay1tap5_2ch/lightning_logs/version_0 128 146 148 138 122 116 112 108 104 97
+    python ./export_model.py ../trained_models/tiss checkpoints/tiss_delay1tap5_2ch/lightning_logs/version_0 128 146 148 138 122 116 112 108 104 97
 
 Run the example script using the exported model::
 
-    python ./example_dnn.py ../wsj1_6ch models/tiss -m 2 -r 100
+    python ./example_dnn.py ../wsj1_6ch ../trained_models/tiss -m 2 -r 100
 
 License
 -------

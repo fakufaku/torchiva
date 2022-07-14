@@ -31,24 +31,6 @@ import yaml
 
 from dataloader import WSJ1SpatialDataset
 
-REF_MIC = 0
-
-
-def make_batch_array(lst, adjust="min"):
-
-    if adjust == "max":
-        m = max([x.shape[-1] for x in lst])
-        batch = lst[0].new_zeros((len(lst), lst[0].shape[0], m))
-        for i, example in enumerate(lst):
-            batch[i, :, : example.shape[1]] = example
-        return batch
-    elif adjust == "min":
-        m = min([x.shape[-1] for x in lst])
-        return torch.cat([x[None, :, :m] for x in lst], dim=0)
-    else:
-        raise NotImplementedError()
-
-
 if __name__ == "__main__":
 
     torch.manual_seed(0)

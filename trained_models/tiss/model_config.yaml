@@ -1,0 +1,16 @@
+hop_length: 512
+n_delay: 1
+n_fft: 2048
+n_iter: 20
+n_power_iter: 0
+n_taps: 5
+proj_back_mic: 0
+source_model:
+  kwargs:
+    dropout_p: 0.5
+    n_bottleneck: 128
+    n_freq: 1025
+    n_sublayers: 3
+    pool_size: 2
+  name: torchiva.models.GLUMask
+use_dmc: false
