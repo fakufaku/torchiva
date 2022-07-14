@@ -29,7 +29,6 @@ import torch
 from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-
 from data_module import WSJ6chDataModule
 from separation_model import WSJModel
 
@@ -44,9 +43,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--workers", type=int, default=8, help="Number of workers for the dataloader"
     )
-    parser.add_argument(
-        "--gpu", type=int, default=0, help="GPU number."
-    )
+    parser.add_argument("--gpu", type=int, default=0, help="GPU number.")
     args = parser.parse_args()
 
     with open(args.config, "r") as f:
@@ -78,16 +75,15 @@ if __name__ == "__main__":
         else None
     )
 
-
     model = WSJModel(config)
-    
+
     dm = WSJ6chDataModule(
         batch_size=config["training"]["batch_size"],
         shuffle=config["training"]["shuffle"],
         num_workers=args.workers,
         dataset_location=args.dataset,
         shuffle_ref=config["training"]["shuffle_ref"],
-        shuffle_channels = config["training"]["shuffle_channels"],
+        shuffle_channels=config["training"]["shuffle_channels"],
         train_n_channels=config["training"]["n_channels"],
         train_n_batch_sizes=train_n_batch_sizes,
         valid_n_channels=valid_n_channels,
@@ -95,27 +91,27 @@ if __name__ == "__main__":
         ref_is_reverb=config["training"]["ref_is_reverb"],
         noiseless=config["training"]["noiseless"],
     )
-    
+
     # create a logger
     os.makedirs(root_dir, exist_ok=True)
     tb_logger = pl_loggers.TensorBoardLogger(root_dir)
-    
+
     # most basic trainer, uses good defaults (auto-tensorboard, checkpoints, logs, and more)
 
     if "max_epoch" in config["training"]:
         max_epoch = config["training"]["max_epoch"]
     else:
         max_epoch = 100
-    
+
     trainer = pl.Trainer(
         deterministic=False,
         gpus=[args.gpu],
         check_val_every_n_epoch=1,
         default_root_dir=root_dir,
         callbacks=[checkpoint_callback],
-        resume_from_checkpoint=args.resume,
+        # resume_from_checkpoint=args.resume,
         logger=tb_logger,
         profiler="simple",
-        max_epochs = max_epoch,
+        max_epochs=max_epoch,
     )
-    trainer.fit(model, dm)
+    trainer.fit(model, dm, ckpt_path=args.resume)

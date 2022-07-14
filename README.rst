@@ -18,13 +18,14 @@ Author
 Quick Start
 -----------
 
-This supposes `anaconda <https://www.anaconda.com/products/individual>`_ is installed::
+This guide assumes `anaconda <https://www.anaconda.com/products/individual>`_ is installed::
 
     # get code and install environment
-    git@git.linecorp.com:speechresearch/torchiva.git
+    git clone <torchiva_repo>
     cd torchiva
     conda env create -f environment.yml
     conda activate torchiva
+    pip install -e .
 
     cd ./examples
     export PYTHONPATH="/path/to/torchiva":$PYTHONPATH"
@@ -63,6 +64,17 @@ We support training of **T-ISS**, **MWF**, **MVDR**, **GEV**::
 Note that our example scripts assumes using WSJ1-mix dataset.
 If you want to use other datasets, please change the script in the part that loads audios.
 
+Test your trained model with checkpoint from epoch 128::
+
+    # python ./test.py --dataset ../wsj1_6ch --n_fft 2048 --hop 512 --n_iter 40 --iss-hparams checkpoints/tiss_delay1tap5_2ch/lightning_logs/version_0/hparams.yaml --epoch 128 --test
+
+Export the trained model for later use::
+
+    python ./export_model.py models/tiss checkpoints/tiss_delay1tap5_2ch/lightning_logs/version_0 128 146 148 138 122 116 112 108 104 97
+
+Run the example script using the exported model::
+
+    python ./example_dnn.py ../wsj1_6ch models/tiss -m 2 -r 100
 
 License
 -------

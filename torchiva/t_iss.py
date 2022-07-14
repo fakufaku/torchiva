@@ -21,11 +21,12 @@
 from typing import List, NoReturn, Optional, Tuple
 
 import torch
-from torch.utils.checkpoint import checkpoint as torch_checkpoint
 from torch.utils.checkpoint import CheckpointFunction
+from torch.utils.checkpoint import checkpoint as torch_checkpoint
 
-from .linalg import divide, hankel_view, hermite, mag_sq, multiply, solve_loaded, solve_loaded_general
 from .base import DRBSSBase
+from .linalg import (divide, hankel_view, hermite, mag_sq, multiply,
+                     solve_loaded, solve_loaded_general)
 
 
 def demix_derev(X, X_bar, W, H):
@@ -46,7 +47,10 @@ def demix_background(X, J):
 
 
 def iss_block_update_type_1(
-    src: int, X: torch.Tensor, weights: torch.Tensor, eps: Optional[float] = 1e-3,
+    src: int,
+    X: torch.Tensor,
+    weights: torch.Tensor,
+    eps: Optional[float] = 1e-3,
 ) -> torch.Tensor:
     """
     Compute the update vector for ISS corresponding to update of the sources
@@ -183,7 +187,6 @@ def iss_updates_with_H(
     return X, W, H
 
 
-
 def background_update(W, H, C_XX, C_XbarX, eps=1e-5):
     """
     Recomputes J based on W, H, and C_XX = E[X X^H] and C_XbarX = E[ X_bar X^H ]
@@ -202,7 +205,6 @@ def background_update(W, H, C_XX, C_XbarX, eps=1e-5):
         # for numerical stability
         norm = torch.linalg.norm(mat.detach(), dim=-1, keepdim=True)
         weights = 1.0 / torch.clamp(norm, min=eps)
-
 
     load = eps * torch.eye(n_src).type_as(mat)
 
@@ -293,12 +295,11 @@ def projection_back_weights(W, J=None, ref_mic=0, eps=1e-6):
     return a.transpose(-3, -2)
 
 
-
 class T_ISS(DRBSSBase):
     """
     Joint dereverberation and separation with *time-decorrelation iterative source steering* (T-ISS) [1]_.
 
-    Parameters can also be specified during a forward call. 
+    Parameters can also be specified during a forward call.
     In this case, the forward argument is only used in that forward process and **does not rewrite class attributes**.
 
     Parameters
@@ -316,7 +317,7 @@ class T_ISS(DRBSSBase):
         If set to ``None``,  ``n_src`` is set to ``n_chan`` (default: ``None``)
     model: torch.nn.Module, optional
         The model of source distribution.
-        Mask estimation neural network can also be used. 
+        Mask estimation neural network can also be used.
         If ``None``, spherical Laplace is used (default: ``None``).
     proj_back_mic: int, optional
         The reference mic index to perform projection back.
@@ -335,7 +336,7 @@ class T_ISS(DRBSSBase):
     Parameters
     ----------
     X: torch.Tensor
-        The input mixture in STFT-domain, 
+        The input mixture in STFT-domain,
         ``shape (..., n_chan, n_freq, n_frames)``
 
     Returns
@@ -363,9 +364,9 @@ class T_ISS(DRBSSBase):
 
     .. [2] R. Scheibler, and N Ono,
         "Fast and stable blind source separation with rank-1 updates"
-        ICASSP, 2021, 
+        ICASSP, 2021,
 
-    .. [3] R. Scheibler, W. Zhang, X. Chang, S. Watanabe, and Y. Qian, 
+    .. [3] R. Scheibler, W. Zhang, X. Chang, S. Watanabe, and Y. Qian,
         "End-to-End Multi-speaker ASR with Independent Vector Analysis",
         arXiv preprint arXiv:2204.00218, 2022, https://arxiv.org/pdf/2204.00218.pdf.
 
@@ -374,7 +375,6 @@ class T_ISS(DRBSSBase):
         arXiv preprint arXiv:2110.06545, 2022, https://arxiv.org/pdf/2110.06545.pdf.
 
     """
-
 
     def __init__(
         self,
@@ -404,7 +404,6 @@ class T_ISS(DRBSSBase):
         self.H = None  # reverb for target sources
         self.J = None  # background in overdetermined case
 
-
     def forward(
         self,
         X: torch.Tensor,
@@ -421,7 +420,16 @@ class T_ISS(DRBSSBase):
         batch_shape = X.shape[:-3]
         n_chan, n_freq, n_frames = X.shape[-3:]
 
-        n_iter, n_taps, n_delay, n_src, model, proj_back_mic, use_dmc, eps = self._set_params(
+        (
+            n_iter,
+            n_taps,
+            n_delay,
+            n_src,
+            model,
+            proj_back_mic,
+            use_dmc,
+            eps,
+        ) = self._set_params(
             n_iter=n_iter,
             n_taps=n_taps,
             n_delay=n_delay,
@@ -432,7 +440,9 @@ class T_ISS(DRBSSBase):
             eps=eps,
         )
 
-        if n_src > n_chan:
+        if n_src is None:
+            n_src = n_chan
+        elif n_src > n_chan:
             raise ValueError(
                 f"Underdetermined source separation (n_src={n_src},"
                 f" n_channels={n_chan}) is not supported"
@@ -494,7 +504,16 @@ class T_ISS(DRBSSBase):
                 )
             else:
                 Y, W, H, J, g = over_iss_t_one_iter(
-                    Y, X, X_bar, C_XX, C_XbarX, W, H, J, model, eps=eps,
+                    Y,
+                    X,
+                    X_bar,
+                    C_XX,
+                    C_XbarX,
+                    W,
+                    H,
+                    J,
+                    model,
+                    eps=eps,
                 )
 
         if use_dmc:
@@ -502,7 +521,7 @@ class T_ISS(DRBSSBase):
             Y = demix_derev(X, X_bar, W, H)
 
         # projection back
-        if proj_back_mic is not None and n_iter>0:
+        if proj_back_mic is not None and n_iter > 0:
             # projection back by inverting the demixing matrix
             a = projection_back_weights(W, J=J, eps=eps, ref_mic=proj_back_mic)
             Y = a * Y

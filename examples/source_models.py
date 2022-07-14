@@ -22,10 +22,8 @@
 import torch as pt
 import torch.nn as nn
 import torch.nn.functional as F
-from torchaudio import functional as F_audio
-from torchaudio.transforms import InverseMelScale, MelScale
-
 import torchiva as bss
+from torchaudio.transforms import MelScale
 
 
 def get_model(name: str, kwargs: dict):
@@ -158,7 +156,11 @@ class GLULayer(nn.Module):
             )
             gate_bn_layers.append(nn.BatchNorm1d(pool_size * n_out))
 
-            pool_layers.append(nn.MaxPool1d(kernel_size=pool_size,))
+            pool_layers.append(
+                nn.MaxPool1d(
+                    kernel_size=pool_size,
+                )
+            )
 
             self.lin_layers = nn.ModuleList(lin_layers)
             self.lin_bn_layers = nn.ModuleList(lin_bn_layers)
@@ -237,7 +239,11 @@ class GLULogLayer(nn.Module):
             )
             gate_bn_layers.append(nn.BatchNorm1d(pool_size * n_out))
 
-            pool_layers.append(nn.MaxPool1d(kernel_size=pool_size,))
+            pool_layers.append(
+                nn.MaxPool1d(
+                    kernel_size=pool_size,
+                )
+            )
 
             self.lin_layers = nn.ModuleList(lin_layers)
             self.lin_bn_layers = nn.ModuleList(lin_bn_layers)
@@ -271,10 +277,6 @@ class GLULogLayer(nn.Module):
         return X
 
 
-
-
-
-
 class GLUMask(nn.Module):
     def __init__(
         self,
@@ -283,24 +285,11 @@ class GLUMask(nn.Module):
         pool_size=2,
         kernel_size=3,
         dropout_p=0.5,
-        laplace_reg=False,
-        laplace_ratio=0.99,
         mag_spec=True,
         log_spec=True,
         n_sublayers=1,
     ):
         super().__init__()
-
-        self.args = (n_freq, n_bottleneck)
-        self.kwargs = {
-            "pool_size": pool_size,
-            "kernel_size": kernel_size,
-            "dropout_p": dropout_p,
-            "laplace_reg": laplace_reg,
-        }
-
-        self.laplace_reg = laplace_reg
-        self.w = laplace_ratio
 
         self.mag_spec = mag_spec
         self.log_spec = log_spec
@@ -314,11 +303,17 @@ class GLUMask(nn.Module):
             [
                 GLULayer(n_inputs, n_bottleneck, n_sublayers=1, pool_size=pool_size),
                 GLULayer(
-                    n_bottleneck, n_bottleneck, n_sublayers=n_sublayers, pool_size=pool_size,
+                    n_bottleneck,
+                    n_bottleneck,
+                    n_sublayers=n_sublayers,
+                    pool_size=pool_size,
                 ),
                 nn.Dropout(p=dropout_p),
                 GLULayer(
-                    n_bottleneck, n_bottleneck, n_sublayers=n_sublayers, pool_size=pool_size,
+                    n_bottleneck,
+                    n_bottleneck,
+                    n_sublayers=n_sublayers,
+                    pool_size=pool_size,
                 ),
                 nn.ConvTranspose1d(
                     in_channels=n_bottleneck,
@@ -363,25 +358,13 @@ class GLUMask(nn.Module):
         for idx, layer in enumerate(self.layers):
             weights = layer(weights)
 
-        if self.laplace_reg:
-            # compute the Laplace activations, i.e. root mean power over frequencies
-            X = pt.sqrt(X.mean(dim=-2, keepdim=True) + 1e-5)
-            X, weights = pt.broadcast_tensors(X, weights)
-            # modified sigmoid including DNN output and Laplace regularizer
-            # we use a power of 10 because we used log10 above
-            # also, this makes it easy to limit the maximum exponent to a power of 10,
-            # e.g. 10^10, here
-            X = self.w * X + (1.0 - self.w) * pt.pow(10.0, pt.clamp(-weights, max=10))
-            weights = pt.reciprocal(1.0 + X)
-        else:
-            # transform to weight by applying the sigmoid
-            weights = pt.sigmoid(weights)
+        # transform to weight by applying the sigmoid
+        weights = pt.sigmoid(weights)
 
         # add a small positive offset to the weights
         weights = weights * (1 - 1e-5) + 1e-5
 
         return weights.reshape(batch_shape + (n_freq, n_frames))
-
 
 
 class BLSTMMask(nn.Module):

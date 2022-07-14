@@ -32,7 +32,7 @@
         "use_dmc": false,
         "ref_mic": 0,
         "source_model": {
-            "name": "MaskMVDRSupport",
+            "name": "torchiva.models.MaskMVDRSupport",
             "kwargs": {
                 "n_src": 2,
                 "n_masks": 2,

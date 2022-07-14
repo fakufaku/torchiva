@@ -4,12 +4,12 @@ channels:
   - conda-forge
 dependencies:
   - python=3.9
-  - pytorch>=1.9.0
+  - pytorch=1.11.0
   - torchaudio
   - numpy
   - scipy
   - sox
   - pip
   - pip:
-      - fast-bss-eval==0.1.2
+      - fast-bss-eval
       - tqdm

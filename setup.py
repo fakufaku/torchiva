@@ -46,6 +46,7 @@ setup(
         "numpy",
         "scipy",
         "torch",
+        "torchaudio",
     ],
     extras_require={
         "all": [],

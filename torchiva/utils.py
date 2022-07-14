@@ -18,12 +18,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import math
 from typing import Dict, Optional
 
-import torch
-from torch import nn
 import numpy as np
-import math
+import torch
+import yaml
+from torch import nn
+
 
 def select_most_energetic(
     x: torch.Tensor, num: int, dim: Optional[int] = -2, dim_reduc: Optional[int] = -1
@@ -59,10 +61,31 @@ def select_most_energetic(
     return ret
 
 
-def module_from_config(name: str, kwargs: Optional[Dict] = None, **other):
+from typing import Dict, List, Optional, Tuple, Union
+
+
+def import_name(name: str):
+
+    parts = name.split(".")
+
+    if len(parts) == 1:
+        return __import__(parts[0])
+
+    module_name = ".".join(parts[:-1])
+    target_name = parts[-1]
+
+    module = __import__(module_name, fromlist=(target_name,))
+    if hasattr(module, target_name):
+        return getattr(module, target_name)
+    else:
+        raise ImportError(f"Could not import {target_name} from {module_name}")
+
+
+def instantiate(
+    name: str, args: Optional[Union[Tuple, List]] = None, kwargs: Optional[Dict] = None
+):
     """
     Get a model by its name
-
     Parameters
     ----------
     name: str
@@ -71,26 +94,15 @@ def module_from_config(name: str, kwargs: Optional[Dict] = None, **other):
         A dict containing all the arguments to the model
     """
 
+    if args is None:
+        args = tuple()
+
     if kwargs is None:
         kwargs = {}
 
-    parts = name.split(".")
-    obj = None
+    obj = import_name(name)
 
-    if len(parts) == 1:
-        raise ValueError("Can't find object without module name")
-
-    else:
-        module = __import__(".".join(parts[:-1]), fromlist=(parts[-1],))
-        if hasattr(module, parts[-1]):
-            obj = getattr(module, parts[-1])
-
-    if obj is not None:
-        return obj(**kwargs)
-    else:
-        raise ValueError(f"The model {name} could not be found")
-
-
+    return obj(*args, **kwargs)
 
 
 def cartesian_to_spherical_torch(p):
@@ -113,21 +125,23 @@ def cartesian_to_spherical_torch(p):
     u = p / r
 
     doa = torch.zeros_like(p, device=p.device)
-    doa = doa[..., :n_dim-1, :]
+    doa = doa[..., : n_dim - 1, :]
 
     if n_dim == 3:
         # colatitude
-        doa[..., 0, :] = torch.atan2(torch.sqrt(p[..., 0, :] ** 2 + p[..., 1, :] ** 2), p[..., 2, :])
+        doa[..., 0, :] = torch.atan2(
+            torch.sqrt(p[..., 0, :] ** 2 + p[..., 1, :] ** 2), p[..., 2, :]
+        )
 
         # azimuths
         doa[..., 1, :] = torch.atan2(p[..., 1, :], p[..., 0, :])
         doa[..., 1, :] = (2 * math.pi + doa[..., 1, :]) % (2 * math.pi)
-    
-    elif n_dim==2:
+
+    elif n_dim == 2:
         # azimuths
         doa[..., 0, :] = torch.atan2(p[..., 1, :], p[..., 0, :])
         doa[..., 0, :] = (2 * math.pi + doa[..., 0, :]) % (2 * math.pi)
- 
+
     return doa, r
 
 
@@ -149,7 +163,7 @@ def spherical_to_cartesian_torch(doa, distance, ref=None):
         in its columns
     """
 
-    #doa = torch.tensor(doa)
+    # doa = torch.tensor(doa)
     distance = torch.tensor(distance, device=doa.device)
 
     if distance.ndim == 0:

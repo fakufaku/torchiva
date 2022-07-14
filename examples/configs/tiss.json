@@ -19,11 +19,11 @@
         "loss_type" : "cisdr",
         "ref_is_reverb" : false,
         "noiseless": false,
-        "max_epoch": 1
+        "max_epoch": 150
     },
     "model": {
-        "n_fft": 1024,
-        "hop_length": 256,
+        "n_fft": 2048,
+        "hop_length": 512,
         "n_iter": 20,
         "n_taps" : 5,
         "n_delay" : 1, 
@@ -31,14 +31,12 @@
         "ref_mic": 0,
         "n_power_iter": 0,
         "source_model": {
-            "name": "GLUMask",
+            "name": "torchiva.models.GLUMask",
             "kwargs": {
-                "n_freq": 513,
+                "n_freq": 1025,
                 "n_bottleneck": 128,
                 "pool_size": 2,
                 "dropout_p": 0.5,
-                "laplace_reg": false,
-                "laplace_ratio": 0.5,
                 "n_sublayers": 3
             }
         }

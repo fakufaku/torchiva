@@ -19,18 +19,16 @@
 # SOFTWARE.
 
 
-import itertools
 import bisect
+import itertools
+import random
+
+import fast_bss_eval
 import pytorch_lightning as pl
 import torch
+import torchiva
 
-import torchiva as bss
-
-import source_models
-import fast_bss_eval
 from autoclip_module import AutoClipper
-
-import random
 
 
 def _get_grad_norm(model):
@@ -44,7 +42,6 @@ def _get_grad_norm(model):
             total_norm += param_norm.item() ** 2
     total_norm = total_norm ** (1.0 / 2)
     return total_norm
-
 
 
 class WSJModel(pl.LightningModule):
@@ -63,14 +60,14 @@ class WSJModel(pl.LightningModule):
         self.lr_scheduler_kwargs = config["training"]["lr_scheduler_kwargs"]
 
         self.loss_type = config["training"]["loss_type"]
-        self.algo=config['algorithm']
+        self.algo = config["algorithm"]
 
         # auto clip
         try:
             self.autoclipper = AutoClipper(config["training"]["autoclip_p"])
         except KeyError:
             self.autoclipper = AutoClipper(100)
-        
+
         self.n_iter = config["model"]["n_iter"]
         self.n_chan = config["training"]["n_chan"]
         self.n_src = config["training"]["n_src"]
@@ -81,13 +78,13 @@ class WSJModel(pl.LightningModule):
             n_power_iter = config["model"]["n_power_iter"]
         except KeyError:
             n_power_iter = None
-        
+
         try:
-            source_model = source_models.get_model(**config["model"]["source_model"])
+            source_model = torchiva.utils.instantiate(**config["model"]["source_model"])
         except KeyError:
             source_model = None
 
-        self.separator = bss.nn.BSSSeparator(
+        self.separator = torchiva.nn.BSSSeparator(
             self.n_fft,
             self.n_iter,
             hop_length=self.hop_length,
@@ -95,49 +92,48 @@ class WSJModel(pl.LightningModule):
             n_delay=config["model"]["n_delay"],
             n_src=self.n_src,
             algo=self.algo,
-            source_model=source_model, 
+            source_model=source_model,
             proj_back_mic=config["model"]["ref_mic"],
             use_dmc=config["model"]["use_dmc"],
             n_power_iter=n_power_iter,
         )
 
-
     def forward(self, x):
         y_hat = self.separator(x)
         return y_hat
-
 
     def compute_metrics(self, y_hat, y):
 
         metrics = {}
         m = min([y_hat.shape[-1], y.shape[-1]])
-        y_hat = y_hat[...,:m]
-        y = y[...,:m]
+        y_hat = y_hat[..., :m]
+        y = y[..., :m]
 
-        y_hat = bss.select_most_energetic(
-            y_hat, num=self.n_src, dim=-2, dim_reduc=-1,
+        y_hat = torchiva.select_most_energetic(
+            y_hat,
+            num=self.n_src,
+            dim=-2,
+            dim_reduc=-1,
         )
 
-        metrics['cisdr_loss'] = fast_bss_eval.sdr_pit_loss(y_hat, y, clamp_db=50).mean()
+        metrics["cisdr_loss"] = fast_bss_eval.sdr_pit_loss(y_hat, y, clamp_db=50).mean()
 
         return metrics
-
 
     def training_step(self, batch, batch_idx):
 
         x, y = batch
-        y_hat = self(x[..., :self.n_chan, :])
+        y_hat = self(x[..., : self.n_chan, :])
 
         metrics = self.compute_metrics(y_hat, y)
 
-        loss = metrics['cisdr_loss']
+        loss = metrics["cisdr_loss"]
 
         cur_step = self.trainer.global_step
         if cur_step % 5 == 0:
             self.logger.log_metrics(metrics, step=cur_step)
-        
-        return loss
 
+        return loss
 
     def on_validation_epoch_start(self):
         self.datasets_types = set()
@@ -148,13 +144,12 @@ class WSJModel(pl.LightningModule):
         with torch.no_grad():
             x, y = batch
 
-            y_hat = self(x[..., :self.n_chan, :])
+            y_hat = self(x[..., : self.n_chan, :])
 
             metrics = self.compute_metrics(y_hat, y)
-            metrics['val_loss'] = metrics['cisdr_loss']
+            metrics["val_loss"] = metrics["cisdr_loss"]
 
         return metrics
-
 
     def validation_epoch_end(self, outputs):
         """
@@ -166,21 +161,21 @@ class WSJModel(pl.LightningModule):
             outputs = [outputs]
 
         avg_loss = {
-            'cisdr': 0,
-            'val_loss':0,
+            "cisdr": 0,
+            "val_loss": 0,
         }
 
         for results in outputs:
-            avg_loss['cisdr'] -= results['cisdr_loss']
-            avg_loss['val_loss'] += results['val_loss']
-        
-        avg_loss['cisdr'] /= len(outputs)
-        avg_loss['val_loss'] /= len(outputs)
+            avg_loss["cisdr"] -= results["cisdr_loss"]
+            avg_loss["val_loss"] += results["val_loss"]
 
-        self.log("val_loss", avg_loss['val_loss'])
+        avg_loss["cisdr"] /= len(outputs)
+        avg_loss["val_loss"] /= len(outputs)
+
+        self.log("val_loss", avg_loss["val_loss"])
 
         for loss_type, loss_value in avg_loss.items():
-            if loss_type != 'val_loss':
+            if loss_type != "val_loss":
                 self.log(f"val_{loss_type}", loss_value)
 
     '''
@@ -197,6 +192,7 @@ class WSJModel(pl.LightningModule):
         """
         self.validation_epoch_end()
     '''
+
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
             self.parameters(), lr=self.lr, weight_decay=self.weight_decay

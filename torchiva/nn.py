@@ -24,17 +24,17 @@ from typing import Optional
 import torch
 from torch import nn
 
-from .five import FIVE
 from .auxiva_ip2 import AuxIVA_IP2
-from .t_iss import T_ISS
+from .beamformer import GEVBeamformer, MVDRBeamformer, MWFBeamformer
+from .five import FIVE
 from .models import LaplaceModel
-from .beamformer import MVDRBeamformer, MWFBeamformer, GEVBeamformer
 from .stft import STFT
-from .utils import select_most_energetic
+from .t_iss import T_ISS
+from .utils import instantiate, select_most_energetic
 
 
 class SepAlgo(enum.Enum):
-    AUXIVA_IP2 = "auxiva-ip2"
+    AUXIVA_IP2 = "ip2"
     T_ISS = "tiss"
     FIVE = "five"
     MVDR = "mvdr"
@@ -64,6 +64,8 @@ class BSSSeparator(nn.Module):
 
         if source_model is None:
             self.source_model = LaplaceModel()
+        elif isinstance(source_model, dict):
+            self.source_model = instantiate(**source_model)
         else:
             self.source_model = source_model
 
@@ -96,7 +98,7 @@ class BSSSeparator(nn.Module):
                 proj_back_mic=proj_back_mic,
                 eps=eps,
             )
-            
+
         elif self.algo == "five":
             self.separator = FIVE(
                 n_iter=n_iter,
@@ -115,7 +117,7 @@ class BSSSeparator(nn.Module):
                 n_power_iter=n_power_iter,
             )
 
-        elif self.algo == 'mwf':
+        elif self.algo == "mwf":
             self.separator = MWFBeamformer(
                 self.source_model,
                 ref_mic=proj_back_mic,
@@ -123,7 +125,7 @@ class BSSSeparator(nn.Module):
                 time_invariant=True,
             )
 
-        elif self.algo == 'gev':
+        elif self.algo == "gev":
             self.separator = GEVBeamformer(
                 self.source_model,
                 ref_mic=proj_back_mic,
@@ -132,8 +134,6 @@ class BSSSeparator(nn.Module):
 
         else:
             raise NotImplementedError("Selected algorithm is not implemented.")
-
-        
 
     @property
     def algo(self):
@@ -149,7 +149,6 @@ class BSSSeparator(nn.Module):
             warnings.warn(
                 "Algorithm FIVE can only extract one source. Parameter n_src ignored."
             )
-
 
     def forward(self, x, reset=True):
 
@@ -168,7 +167,7 @@ class BSSSeparator(nn.Module):
         # iSTFT
         y = self.stft.inv(Y)  # (n_samples, n_channels)
 
-        # zero-padding if necessary 
+        # zero-padding if necessary
         if y.shape[-1] < x.shape[-1]:
             y = torch.cat(
                 (y, y.new_zeros(y.shape[:-1] + (x.shape[-1] - y.shape[-1],))), dim=-1
