@@ -47,6 +47,7 @@ setup(
         "scipy",
         "torch",
         "torchaudio",
+        "PyYAML",
     ],
     extras_require={
         "all": [],
