@@ -6,3 +6,4 @@ PyYAML
 fast-bss-eval
 pytest
 pytest-cov
+-e .

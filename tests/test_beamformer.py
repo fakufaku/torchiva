@@ -7,6 +7,7 @@ import pytest
 from pathlib import Path
 
 from torchiva.linalg import eigh, solve_loaded, bmm, hermite, multiply
+import torchiva.beamformer
 
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
@@ -66,7 +67,7 @@ def test_beamformers(n_fft):
 
     # -------------------------
     # MWF part
-    mwf = torchiva.compute_mwf_bf(R_tgt, R_noise, ref_mic=ref_mic)
+    mwf = torchiva.beamformer.compute_mwf_bf(R_tgt, R_noise, ref_mic=ref_mic)
     Y = torch.einsum("...cfn,...sfc->...sfn", X, mwf.conj())
     y = stft.inv(Y)
 
@@ -76,10 +77,10 @@ def test_beamformers(n_fft):
 
     # -------------------------
     # MVDR part
-    rtf = torchiva.compute_mvdr_rtf_eigh(
+    rtf = torchiva.beamformer.compute_mvdr_rtf_eigh(
         R_tgt, R_noise, ref_mic=ref_mic, power_iterations=15
     )
-    mvdr = torchiva.compute_mvdr_bf(R_noise, rtf)
+    mvdr = torchiva.beamformer.compute_mvdr_bf(R_noise, rtf)
     Y = torch.einsum("...cfn,...sfc->...sfn", X, mvdr.conj())
     y = stft.inv(Y)
 
@@ -87,10 +88,10 @@ def test_beamformers(n_fft):
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
     print(f"MVDRpi  SDR", sdr)
 
-    rtf = torchiva.compute_mvdr_rtf_eigh(
+    rtf = torchiva.beamformer.compute_mvdr_rtf_eigh(
         R_tgt, R_noise, ref_mic=ref_mic, power_iterations=None
     )
-    mvdr = torchiva.compute_mvdr_bf(R_noise, rtf)
+    mvdr = torchiva.beamformer.compute_mvdr_bf(R_noise, rtf)
     Y = torch.einsum("...cfn,...sfc->...sfn", X, mvdr.conj())
     y = stft.inv(Y)
 
@@ -100,7 +101,7 @@ def test_beamformers(n_fft):
 
     # -------------------------
     # MVDR2 part
-    mvdr2 = torchiva.compute_mvdr_bf2(R_tgt, R_noise)
+    mvdr2 = torchiva.beamformer.compute_mvdr_bf2(R_tgt, R_noise)
     Y = torch.einsum("...cfn,...sfc->...sfn", X, mvdr2.conj())
     y = stft.inv(Y)
 
@@ -110,7 +111,7 @@ def test_beamformers(n_fft):
 
     # -------------------------
     # GEV part
-    gev = torchiva.compute_gev_bf(R_tgt, R_noise, ref_mic=ref_mic)
+    gev = torchiva.beamformer.compute_gev_bf(R_tgt, R_noise, ref_mic=ref_mic)
     Y = bmm(gev, X.transpose(-3, -2)).transpose(-3, -2)
     y = stft.inv(Y)
 
