@@ -10,7 +10,7 @@ import torch
 import torchaudio
 
 # We will first validate the numpy backend
-import torchiva as bss
+import torchiva
 
 REF_MIC = 0
 RTOL = 1e-5
@@ -21,44 +21,6 @@ from torch import nn
 from torchaudio.transforms import MelScale
 
 
-class SimpleModel(torch.nn.Module):
-    def __init__(
-        self,
-        n_freq=257,
-        n_mels=64,
-        eps=1e-6,
-    ):
-        super().__init__()
-
-        self.eps = eps
-
-        self.mel_layer = MelScale(n_stft=n_freq, n_mels=n_mels)
-        self.output_mapping = nn.Linear(n_mels, n_freq)
-
-    def forward(self, x):
-        batch_shape = x.shape[:-2]
-        n_freq, n_frames = x.shape[-2:]
-        x = x.reshape((-1, n_freq, n_frames))
-
-        # log-mel
-        x = x.abs() ** 2
-        x = self.mel_layer(x)
-        x = 10.0 * torch.log10(self.eps + x)
-
-        x = x.transpose(-2, -1)
-
-        # output mapping
-        x = self.output_mapping(x)
-
-        x = torch.sigmoid(self.eps + (1 - self.eps) * x)
-
-        # go back to feature (freq) second
-        x = x.transpose(-2, -1)
-
-        # restore batch shape
-        x = x.reshape(batch_shape + x.shape[-2:])
-
-        return x
 
 
 def make_batch_array(lst):
@@ -87,10 +49,10 @@ def print_params(module):
 
 def scale(X):
     g = torch.clamp(
-        torch.mean(bss.linalg.mag_sq(X), dim=(-2, -1), keepdim=True), min=1e-6
+        torch.mean(torchiva.linalg.mag_sq(X), dim=(-2, -1), keepdim=True), min=1e-6
     )
     g = torch.sqrt(g)
-    X = bss.linalg.divide(X, g)
+    X = torchiva.linalg.divide(X, g)
     return X, g
 
 
@@ -137,7 +99,7 @@ def test_iss_t_rev_grad():
     ref = make_batch_array(ref_lst)
 
     # STFT parameters
-    stft = bss.STFT(n_fft)
+    stft = torchiva.STFT(n_fft)
 
     # transfer to device
     mix = mix.to(device)
@@ -156,10 +118,10 @@ def test_iss_t_rev_grad():
 
     t1 = time.perf_counter()
 
-    model1 = SimpleModel(n_freq=n_fft // 2 + 1, n_mels=16)
+    model1 = torchiva.models.SimpleModel(n_freq=n_fft // 2 + 1, n_mels=16)
     model1 = model1.to(device)
 
-    model2 = SimpleModel(n_freq=n_fft // 2 + 1, n_mels=16)
+    model2 = torchiva.models.SimpleModel(n_freq=n_fft // 2 + 1, n_mels=16)
     model2 = model2.to(device)
 
     # make sure both models are initialized the same
@@ -171,14 +133,14 @@ def test_iss_t_rev_grad():
     set_requires_grad_(model2)
 
     # Separation normal
-    bss_algo = bss.T_ISS(
+    bss_algo = torchiva.T_ISS(
         model=model1, n_taps=5, n_delay=1, proj_back_mic=0, eps=1e-3
     )
     Y1 = bss_algo(X, n_iter=n_iter)
     Y1 = unscale(Y1, g)
 
     # Separation reversible
-    bss_algo_rev = bss.T_ISS(
+    bss_algo_rev = torchiva.T_ISS(
         model=model2, n_taps=5, n_delay=1, proj_back_mic=0, eps=1e-3, use_dmc=True
     )
     Y2 = bss_algo_rev(X2, n_iter=n_iter)
