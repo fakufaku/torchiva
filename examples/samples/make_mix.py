@@ -27,18 +27,20 @@ if __name__ == "__main__":
     base_dir = samples_list_fn.parent
 
     for sample in samples_list:
+        n_chan = sample["n_chan"]
 
         fs, audios = read_files(base_dir, sample["dry"])
 
         room_dim = np.random.rand(3) * 3 + 3
         source_loc = np.random.rand(2, 3) * room_dim
-        mic_loc = room_dim / 2.0 + 0.1 * (np.random.rand(2, 3) - 0.5)
+        mic_loc = room_dim / 2.0 + 0.1 * (np.random.rand(n_chan, 3) - 0.5)
 
         room = pra.ShoeBox(room_dim, fs=fs, max_order=10, materials=pra.Material(0.7))
 
-        for src, mic, sig in zip(source_loc, mic_loc, audios):
-            print(src, mic)
+        for src, sig in zip(source_loc, audios):
             room.add_source(src, signal=sig)
+
+        for mic in mic_loc:
             room.add_microphone(mic)
 
         premix = room.simulate(return_premix=True)

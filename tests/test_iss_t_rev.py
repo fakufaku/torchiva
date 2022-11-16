@@ -120,14 +120,29 @@ def test_iss_t_rev_grad():
 
 
 @pytest.mark.parametrize(
-    "use_dmc, n_fft, optim_epoch, n_iter",
-    [(True, 256, 3, 3), (False, 256, 3, 3), (True, 512, 3, 3), (False, 512, 3, 3),],
+    "use_dmc, n_fft, optim_epoch, n_iter, n_chan, tol_db",
+    [
+        (True, 256, 3, 3, 2, 0.75),
+        (False, 256, 3, 3, 2, 0.75),
+        (True, 512, 3, 3, 2, 0.75),
+        (False, 512, 3, 3, 2, 0.75),
+        (True, 256, 3, 3, 3, 0.5),
+        (False, 256, 3, 3, 3, 0.5),
+        (True, 512, 3, 3, 3, 0.5),
+        (False, 512, 3, 3, 3, 0.5),
+    ],
 )
-def test_iss_t_rev_opt(use_dmc, n_fft, optim_epoch, n_iter, lr=0.001, device="cpu"):
+def test_iss_t_rev_opt(
+    use_dmc, n_fft, optim_epoch, n_iter, n_chan, tol_db, lr=0.001, device="cpu"
+):
+    """Tests that the optimization works"""
 
     torch.manual_seed(0)
 
     mix, ref = read_samples(ref_mic=REF_MIC)
+
+    mix = mix[:, :n_chan, :]
+    ref = ref[:, :n_chan, :]
 
     stft = torchiva.STFT(n_fft)
 
@@ -187,8 +202,8 @@ def test_iss_t_rev_opt(use_dmc, n_fft, optim_epoch, n_iter, lr=0.001, device="cp
 
     sdri = -neg_sdr - sdr_epoch_0
     print("Improvement:", sdri)
-    assert sdri > 0.75
+    assert sdri > tol_db
 
 
 if __name__ == "__main__":
-    test_iss_t_rev_opt(True, 512, 3, 10, device=0)
+    test_iss_t_rev_opt(True, 512, 3, 10, 3, device=0)
