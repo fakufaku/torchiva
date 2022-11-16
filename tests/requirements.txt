@@ -1,0 +1,7 @@
+pytorch>=1.11.0
+torchaudio
+numpy
+scipy
+PyYAML
+fast-bss-eval
+pytest

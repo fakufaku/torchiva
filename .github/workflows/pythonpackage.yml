@@ -32,7 +32,8 @@ jobs:
         python -m pip install -e .
     - name: Test with pytest
       run: |
-        pip install -U pytest setuptools wheel twine
+        pip install -U setuptools wheel twine
+        pip install -r tests/requirements.txt
         pytest
     - name: Test the universal wheels
       if: matrix.os == 'ubuntu-latest'
