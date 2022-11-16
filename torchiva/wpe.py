@@ -76,12 +76,13 @@ def wpe_one_iter(
     xcv = xcv.reshape(batch_shape + (n_freq, Lh, n_chan))
 
     # H = torch.linalg.solve(acm + eps * torch.eye(Lh).type_as(acm), xcv)
-    #H = torch.linalg.solve(acm, xcv)
+    # H = torch.linalg.solve(acm, xcv)
     H = solve_loaded(acm, xcv, load=eps)
 
     H = H.reshape(batch_shape + (n_freq, n_chan, n_taps, n_chan))
 
     return H
+
 
 class WPE(DRBSSBase):
     """
@@ -109,10 +110,11 @@ class WPE(DRBSSBase):
 
     References
     ---------
-    .. [9] T. Nakatani, T. Yoshioka, K. Kinoshita, M. Miyoshi, and B. H. Juang, 
+    .. [9] T. Nakatani, T. Yoshioka, K. Kinoshita, M. Miyoshi, and B. H. Juang,
         "Speech dereverberation based on variance-normalized delayed linear prediction",
         IEEE Trans. on Audio, Speech, and Lang. Process., 2010.
     """
+
     def __init__(
         self,
         n_iter: Optional[int] = 3,

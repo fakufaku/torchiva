@@ -9,7 +9,7 @@ from pathlib import Path
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 
-ref_mic=0
+ref_mic = 0
 
 with open(Path("wsj1_6ch") / "dev93" / "mixinfo_noise.json") as f:
     mixinfo = json.load(f)
@@ -17,19 +17,29 @@ with open(Path("wsj1_6ch") / "dev93" / "mixinfo_noise.json") as f:
 info = mixinfo["00223"]
 dtp = torch.float32
 
-mix, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_mixed_noise_reverb']).parts[-4:])))
+mix, fs = torchaudio.load(
+    Path("wsj1_6ch")
+    / (Path("").joinpath(*Path(info["wav_mixed_noise_reverb"]).parts[-4:]))
+)
 mix = mix[[ref_mic]].type(dtp)
 
-ref_reverb, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_image_reverberant'][0]).parts[-4:])))
-ref_anechoic, fs = torchaudio.load(Path("wsj1_6ch") / (Path("").joinpath(*Path(info['wav_dpath_image_anechoic'][0]).parts[-4:])))
+ref_reverb, fs = torchaudio.load(
+    Path("wsj1_6ch")
+    / (Path("").joinpath(*Path(info["wav_dpath_image_reverberant"][0]).parts[-4:]))
+)
+ref_anechoic, fs = torchaudio.load(
+    Path("wsj1_6ch")
+    / (Path("").joinpath(*Path(info["wav_dpath_image_anechoic"][0]).parts[-4:]))
+)
 ref_reverb = ref_reverb[[ref_mic]].type(dtp)
 ref_anechoic = ref_anechoic[[ref_mic]].type(dtp)
+
 
 @pytest.mark.parametrize(
     "n_iter, delay, tap, n_fft",
     [
         (3, 3, 10, 512),
-        #(3, 3, 10, 512),
+        # (3, 3, 10, 512),
     ],
 )
 def test_wpe(n_iter, delay, tap, n_fft):
@@ -54,11 +64,9 @@ def test_wpe(n_iter, delay, tap, n_fft):
     Y = wpe(X)
     y = stft.inv(Y)
 
-    
     m = min(ref_anechoic.shape[-1], y.shape[-1])
     sdr = fast_bss_eval.sdr(ref_anechoic[:, :m], y[:, :m])
     sdr_org = fast_bss_eval.sdr(ref_anechoic[:, :m], ref_reverb[:, :m])
     print("reverb: ", sdr_org, "dereverb", sdr)
 
-    #print(f"\nWPE  iter:{n_iter:.0f} delay:{delay:.0f} tap:{tap:.0f} SDR", sdr, "SDRorg", sdr_org)
-
+    # print(f"\nWPE  iter:{n_iter:.0f} delay:{delay:.0f} tap:{tap:.0f} SDR", sdr, "SDRorg", sdr_org)

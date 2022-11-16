@@ -32,7 +32,7 @@ def make_batch_array(lst, adjust="min"):
 
 
 def adjust_scale_format_int16(*arrays):
-    M = 2 ** 15 / max([a.abs().max() for a in arrays])
+    M = 2**15 / max([a.abs().max() for a in arrays])
     out_arrays = []
     for a in arrays:
         out_arrays.append((a * M).type(torch.int16))

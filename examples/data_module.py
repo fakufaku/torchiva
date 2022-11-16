@@ -33,6 +33,7 @@ from dataloader import (
     collator_6ch,
 )
 
+
 class WSJ6chDataModule(pl.LightningDataModule):
     def __init__(
         self,
@@ -47,7 +48,7 @@ class WSJ6chDataModule(pl.LightningDataModule):
         train_n_batch_sizes=None,
         valid_n_channels=None,
         noiseless=False,
-        ref_is_reverb = None,
+        ref_is_reverb=None,
     ):
         super().__init__()
 
@@ -65,7 +66,7 @@ class WSJ6chDataModule(pl.LightningDataModule):
 
         self.shuffle_channels = shuffle_channels
         self.shuffle_ref = shuffle_ref
-        
+
         # handle the number of samples per number of channels
         if isinstance(train_n_channels, list):
             train_n_channels = dict(
@@ -89,7 +90,6 @@ class WSJ6chDataModule(pl.LightningDataModule):
         else:
             for nch in self.train_n_channels:
                 self.train_n_batch_sizes[nch] = train_n_batch_sizes[str(nch)]
-        
 
     def setup(self, stage):
         torchaudio.set_audio_backend("sox_io")
@@ -165,7 +165,7 @@ class WSJ6chDataModule(pl.LightningDataModule):
                 shuffle=False,
                 num_workers=self.num_workers,
                 collate_fn=collator,
-                #pin_memory=True,
+                # pin_memory=True,
             )
             for ds in self.wsj_test
         ]

@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch as pt
 import torchaudio
+
 # We will first validate the numpy backend
 import torchiva as bss
 
@@ -24,7 +25,7 @@ def make_batch_array(lst):
 
 
 def adjust_scale_format_int16(*arrays):
-    M = 2 ** 15 / max([a.abs().max() for a in arrays])
+    M = 2**15 / max([a.abs().max() for a in arrays])
     out_arrays = []
     for a in arrays:
         out_arrays.append((a * M).type(torch.int16))

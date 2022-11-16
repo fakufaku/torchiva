@@ -30,6 +30,7 @@ import fast_bss_eval
 
 REF_MIC = 0
 
+
 def make_batch_array(lst, adjust="min"):
 
     if adjust == "max":
@@ -74,13 +75,20 @@ if __name__ == "__main__":
     )
     parser.add_argument("--n_fft", type=int, default=4096, help="STFT FFT size")
     parser.add_argument("--hop", type=int, default=None, help="STFT hop length size")
-    parser.add_argument(
-        "--n_iter", default=20, type=int, help="Number of iterations"
-    )
+    parser.add_argument("--n_iter", default=20, type=int, help="Number of iterations")
     parser.add_argument("--delay", type=int, default=0, help="Delay in dereverberation")
-    parser.add_argument("--tap", type=int, default=0, help="Tap length in dereverberation")
-    parser.add_argument("--n_src", type=int, default=2, help="Number of sources in a mixture")
-    parser.add_argument("--n_chan", type=int, default=None, help="Number of channels used for separation")
+    parser.add_argument(
+        "--tap", type=int, default=0, help="Tap length in dereverberation"
+    )
+    parser.add_argument(
+        "--n_src", type=int, default=2, help="Number of sources in a mixture"
+    )
+    parser.add_argument(
+        "--n_chan",
+        type=int,
+        default=None,
+        help="Number of channels used for separation",
+    )
 
     parser.add_argument(
         "--model",
@@ -89,7 +97,7 @@ if __name__ == "__main__":
         type=str,
         help="Source model, default: gauss",
     )
-    
+
     args = parser.parse_args()
 
     metafilename = args.dataset_dir / "dev93" / "mixinfo_noise.json"
@@ -104,31 +112,54 @@ if __name__ == "__main__":
         args.n_chan = args.n_src
 
     if args.algorithm != "overiss_t" and args.tap > 0:
-        warnings.warn(f"``tap={args.tap}`` is specified, but dereverberation is not performed in ``{args.algorithm}``.")
-
-
+        warnings.warn(
+            f"``tap={args.tap}`` is specified, but dereverberation is not performed in ``{args.algorithm}``."
+        )
 
     # choose and read the audio files
     # can be changed to any multi-channel mixture and corresponding reference signals
 
     # mix: shape (n_chan, n_sample)
-    mix, fs = torchaudio.load(args.dataset_dir / (Path("").joinpath(*Path(info['wav_mixed_noise_reverb']).parts[-4:])))
-    
-    if args.delay==0 and args.tap==0:
+    mix, fs = torchaudio.load(
+        args.dataset_dir
+        / (Path("").joinpath(*Path(info["wav_mixed_noise_reverb"]).parts[-4:]))
+    )
+
+    if args.delay == 0 and args.tap == 0:
         # reverberant clean references
-        ref1, fs = torchaudio.load(args.dataset_dir / (Path("").joinpath(*Path(info['wav_dpath_image_reverberant'][0]).parts[-4:])))
-        ref2, fs = torchaudio.load(args.dataset_dir / (Path("").joinpath(*Path(info['wav_dpath_image_reverberant'][1]).parts[-4:])))
+        ref1, fs = torchaudio.load(
+            args.dataset_dir
+            / (
+                Path("").joinpath(
+                    *Path(info["wav_dpath_image_reverberant"][0]).parts[-4:]
+                )
+            )
+        )
+        ref2, fs = torchaudio.load(
+            args.dataset_dir
+            / (
+                Path("").joinpath(
+                    *Path(info["wav_dpath_image_reverberant"][1]).parts[-4:]
+                )
+            )
+        )
     else:
         # anechoic clean references
-        ref1, fs = torchaudio.load(args.dataset_dir / (Path("").joinpath(*Path(info['wav_dpath_image_anechoic'][0]).parts[-4:])))
-        ref2, fs = torchaudio.load(args.dataset_dir / (Path("").joinpath(*Path(info['wav_dpath_image_anechoic'][1]).parts[-4:])))
-    
+        ref1, fs = torchaudio.load(
+            args.dataset_dir
+            / (Path("").joinpath(*Path(info["wav_dpath_image_anechoic"][0]).parts[-4:]))
+        )
+        ref2, fs = torchaudio.load(
+            args.dataset_dir
+            / (Path("").joinpath(*Path(info["wav_dpath_image_anechoic"][1]).parts[-4:]))
+        )
+
     # ref: shape (n_src, n_sample)
-    ref = torch.stack((ref1[REF_MIC], ref2[REF_MIC]),dim=0)
+    ref = torch.stack((ref1[REF_MIC], ref2[REF_MIC]), dim=0)
 
     stft = torchiva.STFT(
         n_fft=args.n_fft,
-        hop_length=args.hop, 
+        hop_length=args.hop,
     )
 
     source_model = torchiva.models.source_models[args.model]
@@ -152,7 +183,7 @@ if __name__ == "__main__":
             eps=1e-5,
         )
     elif args.algorithm == "auxiva_ip2":
-        assert (args.n_chan==2 and args.n_src==2)
+        assert args.n_chan == 2 and args.n_src == 2
         separator = torchiva.AuxIVA_IP2(
             n_iter=args.n_iter,
             model=source_model,
@@ -161,7 +192,9 @@ if __name__ == "__main__":
         )
     elif args.algorithm == "five":
         if args.n_src != 1:
-            warnings.warn(f"``n_src={args.tap}`` is specified, but ``five`` extracts only 1 source.")
+            warnings.warn(
+                f"``n_src={args.tap}`` is specified, but ``five`` extracts only 1 source."
+            )
 
         separator = torchiva.FIVE(
             n_iter=args.n_iter,
@@ -171,8 +204,7 @@ if __name__ == "__main__":
             n_power_iter=None,
         )
 
-
-    X = stft(mix[..., :args.n_chan, :])
+    X = stft(mix[..., : args.n_chan, :])
     Y = separator(X)
     y = stft.inv(Y)
 
@@ -184,5 +216,7 @@ if __name__ == "__main__":
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
 
     print("\n==== Separation Results ====")
-    print(f"Algo: {args.algorithm.upper()},  Model: {args.model},  n_iter: {args.n_iter:.0f},  n_chan: {args.n_chan:.0f},  n_src: {args.n_src:.0f}")
+    print(
+        f"Algo: {args.algorithm.upper()},  Model: {args.model},  n_iter: {args.n_iter:.0f},  n_chan: {args.n_chan:.0f},  n_src: {args.n_src:.0f}"
+    )
     print("SDR: ", sdr.cpu().numpy(), " | SIR: ", sir.cpu().numpy())

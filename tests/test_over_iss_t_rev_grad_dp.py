@@ -17,6 +17,7 @@ DATA_META = DATA_DIR / "metadata.json"
 REF_MIC = 0
 RTOL = 1e-5
 
+
 def scale(X):
     g = torch.clamp(
         torch.mean(bss.linalg.mag_sq(X), dim=(-2, -1), keepdim=True), min=1e-6
@@ -29,8 +30,11 @@ def scale(X):
 def unscale(X, g):
     return X * g
 
+
 class Separation(torch.nn.Module):
-    def __init__(self, n_fft, hop, window, source_model, n_iter, no_pb=False, use_dmc=True):
+    def __init__(
+        self, n_fft, hop, window, source_model, n_iter, no_pb=False, use_dmc=True
+    ):
         super().__init__()
         self.stft = bss.STFT(args.n_fft, hop_length=args.hop, window=args.window)
         self.source_model = source_model
@@ -50,7 +54,7 @@ class Separation(torch.nn.Module):
         X, g = scale(X)
 
         Y = self.iss_t(X, n_iter=self.n_iter)
-    
+
         Y = unscale(Y, g)
 
         y = self.stft.inv(Y)  # (n_samples, n_channels)
@@ -66,12 +70,12 @@ def make_batch_array(lst):
     m = max([x.shape[-1] for x in lst])
     out = torch.zeros((len(lst), lst[0].shape[0], m))
     for i, sig in enumerate(lst):
-        out[i, :, :sig.shape[1]] = sig
+        out[i, :, : sig.shape[1]] = sig
     return out
 
 
 def adjust_scale_format_int16(*arrays):
-    M = 2 ** 15 / max([a.abs().max() for a in arrays])
+    M = 2**15 / max([a.abs().max() for a in arrays])
     out_arrays = []
     for a in arrays:
         out_arrays.append((a * M).type(torch.int16))
@@ -86,7 +90,6 @@ def set_requires_grad_(module):
 def print_params(module):
     for p in module.parameters():
         print(p)
-
 
 
 def manual_seed_all(seed):
@@ -132,7 +135,10 @@ if __name__ == "__main__":
         help="Location of dataset",
     )
     parser.add_argument(
-        "--channels", "-c", type=int, help="Number of channels to use",
+        "--channels",
+        "-c",
+        type=int,
+        help="Number of channels to use",
     )
     parser.add_argument("--snr", default=40, type=float, help="Signal-to-Noise Ratio")
     parser.add_argument("--use_dp", action="store_true", help="Use DataParallel")
@@ -245,8 +251,12 @@ if __name__ == "__main__":
     set_requires_grad_(model2)
 
     # Separation normal
-    bss_algo_1 = Separation(args.n_fft, args.hop, args.window, model1, args.n_iter, args.no_pb, args.use_dmc).to(device)
-    bss_algo_2 = Separation(args.n_fft, args.hop, args.window, model2, args.n_iter, args.no_pb, args.use_dmc).to(device)
+    bss_algo_1 = Separation(
+        args.n_fft, args.hop, args.window, model1, args.n_iter, args.no_pb, args.use_dmc
+    ).to(device)
+    bss_algo_2 = Separation(
+        args.n_fft, args.hop, args.window, model2, args.n_iter, args.no_pb, args.use_dmc
+    ).to(device)
 
     # Separation with backpropagation
     manual_seed_all(0)
@@ -256,9 +266,7 @@ if __name__ == "__main__":
     manual_seed_all(0)
     if args.use_dp:
         print("Use DP!")
-        sdr2 = data_parallel(
-            bss_algo_2, inputs=(mix, ref), device_ids=(0, 1)
-        )
+        sdr2 = data_parallel(bss_algo_2, inputs=(mix, ref), device_ids=(0, 1))
         sdr2 = sdr2.sum()
     else:
         sdr2 = bss_algo_2(mix, ref)

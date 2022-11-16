@@ -33,13 +33,13 @@ def grad_norm(module: torch.nn.Module):
         if p.grad is not None:
             param_norm = p.grad.data.norm(2)
             total_norm += param_norm.item() ** 2
-    total_norm = total_norm ** 0.5
+    total_norm = total_norm**0.5
     return total_norm
 
 
 class AutoClipper:
     """
-    This class can be used to automatically adjust the threshold used 
+    This class can be used to automatically adjust the threshold used
     to clip the gradient
     Parameters
     ----------

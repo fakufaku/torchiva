@@ -12,7 +12,7 @@ def cost(v, p, d, g):
 
     return (
         -2 * torch.sum(p * v)
-        + torch.sum(v ** 2 * d)
+        + torch.sum(v**2 * d)
         - torch.log((1 - torch.sum(g * v)) ** 2)
     )
 
@@ -25,16 +25,16 @@ def grad(v, p, d, g):
 def sol(p, d, g):
     a = torch.sum(g.square() / d)
     b = 1 - torch.sum(g * p / d)
-    ell = (-b + torch.sqrt(b ** 2 + 4 * a)) / (2.0 * a)
+    ell = (-b + torch.sqrt(b**2 + 4 * a)) / (2.0 * a)
     sol = (p - ell * g) / d
     print("check", ell, 1.0 / (1 - torch.sum(g * sol)))
-    print("check2", ell ** 2 * a + ell * b - 1)
+    print("check2", ell**2 * a + ell * b - 1)
     return sol
 
 
 def cost_c(v, p, d, g):
     lin = -2 * torch.sum(p.conj() * v).real
-    sq = torch.sum((v.real ** 2 + v.imag ** 2) * d)
+    sq = torch.sum((v.real**2 + v.imag**2) * d)
     log = -torch.log(abs(1 - torch.sum(g.conj() * v)) ** 2)
     return lin + sq + log
 
@@ -47,21 +47,21 @@ def grad_c(v, p, d, g):
 def sol_c(p, d, g):
     eps = 0.0
 
-    gdg = torch.sum((g.real ** 2 + g.imag ** 2) / (d + eps))
+    gdg = torch.sum((g.real**2 + g.imag**2) / (d + eps))
     gdp = torch.sum(g.conj() * p / (d + eps))
 
     b1 = 1 - gdp
-    b2 = b1.real ** 2 + b1.imag ** 2
+    b2 = b1.real**2 + b1.imag**2
     a = b2 * gdg
 
-    beta = (-b2 + torch.sqrt(b2 ** 2 + 4 * a)) / (2.0 * a)
+    beta = (-b2 + torch.sqrt(b2**2 + 4 * a)) / (2.0 * a)
     ell = b1 * beta
 
     v = (p - ell * g) / (d + eps)
 
     print("check", ell, 1.0 / (1 - torch.sum(g.conj() * v)).conj())
     print("check2", abs(ell) ** 2 * gdg + ell * b1.conj() - 1)
-    print("check3", beta ** 2 * a + beta * b2 - 1)
+    print("check3", beta**2 * a + beta * b2 - 1)
 
     return v
 

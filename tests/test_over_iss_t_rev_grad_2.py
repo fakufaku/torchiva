@@ -25,7 +25,7 @@ def make_batch_array(lst):
 
 
 def adjust_scale_format_int16(*arrays):
-    M = 2 ** 15 / max([a.abs().max() for a in arrays])
+    M = 2**15 / max([a.abs().max() for a in arrays])
     out_arrays = []
     for a in arrays:
         out_arrays.append((a * M).type(torch.int16))
@@ -98,7 +98,10 @@ if __name__ == "__main__":
         help="Location of dataset",
     )
     parser.add_argument(
-        "--channels", "-c", type=int, help="Number of channels to use",
+        "--channels",
+        "-c",
+        type=int,
+        help="Number of channels to use",
     )
     parser.add_argument("--snr", default=40, type=float, help="Signal-to-Noise Ratio")
     args = parser.parse_args()

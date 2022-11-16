@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch as pt
 import torchaudio
+
 # We will first validate the numpy backend
 import torchiva as bss
 
@@ -24,7 +25,7 @@ def make_batch_array(lst):
 
 
 def adjust_scale_format_int16(*arrays):
-    M = 2 ** 15 / max([a.abs().max() for a in arrays])
+    M = 2**15 / max([a.abs().max() for a in arrays])
     out_arrays = []
     for a in arrays:
         out_arrays.append((a * M).type(torch.int16))
@@ -52,6 +53,7 @@ def scale(X):
 
 def unscale(X, g):
     return X * g
+
 
 def manual_seed_all(seed):
     np.random.seed(seed)
@@ -203,12 +205,16 @@ if __name__ == "__main__":
     n_hidden = 128
     dropout_p = 0.1
 
-    #model1 = bss.models.SimpleModel(n_freq=args.n_fft // 2 + 1, n_mels=16)
-    model1 = bss.models.GLUMask(n_input=n_freq, n_output=n_freq, n_hidden=n_hidden, dropout_p=dropout_p)
+    # model1 = bss.models.SimpleModel(n_freq=args.n_fft // 2 + 1, n_mels=16)
+    model1 = bss.models.GLUMask(
+        n_input=n_freq, n_output=n_freq, n_hidden=n_hidden, dropout_p=dropout_p
+    )
     model1 = model1.to(device)
 
-    #model2 = bss.models.SimpleModel(n_freq=args.n_fft // 2 + 1, n_mels=16)
-    model2 = bss.models.GLUMask(n_input=n_freq, n_output=n_freq, n_hidden=n_hidden, dropout_p=dropout_p)
+    # model2 = bss.models.SimpleModel(n_freq=args.n_fft // 2 + 1, n_mels=16)
+    model2 = bss.models.GLUMask(
+        n_input=n_freq, n_output=n_freq, n_hidden=n_hidden, dropout_p=dropout_p
+    )
     model2 = model2.to(device)
 
     # make sure both models are initialized the same
