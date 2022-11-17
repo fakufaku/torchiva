@@ -15,32 +15,24 @@ The package can be installed via pip::
 
     pip install torchiva
 
-You can also install from the repo directly.
-Assuming `anaconda <https://www.anaconda.com/products/individual>`_ is installed::
-
-    # get code and install environment
-    git clone https://github.com/fakufaku/torchiva.git
-    cd torchiva
-    conda env create -f environment.yml
-    conda activate torchiva
-    pip install -e .
-
-    # BSS example, assumes you have the WSJ1-mix installed from
-    # https://github.com/fakufaku/create_wsj1_2345_db
-    # algorithm can be selected from tiss, auxiva_ip, auxiva_ip2, and five
-    python ./example.py PATH_TO_DATASET ALGORITHM
-
 Separation using Pre-trained Model
 ----------------------------------
 
 We provide a pre-trained model in `trained_models/tiss`.
-The model is trained with `WSJ1-mix dataset <https://github.com/fakufaku/create_wsj1_2345_db>`_ with the same configuration as `./configs/tiss.json`.
 You can easily try separation with the pre-trained model::
 
-    # download model parameters from hugging face
-
     # Separation
-    python ./example_dnn.py ./configs/tiss.json PATH_TO_DATASET PATH_TO_MODEL_PARAMS
+    python -m torchiva.separation INPUT OUTPUT
+
+where ``INPUT`` is either a multichannel wav file or a folder containing
+multichannel wav files.  If a folder, then all the files inside are separted.
+The output is saved to ``OUTPUT``.
+The model stored in ``trained_models/tiss`` is automatically downloaded to
+``$HOME/.torchiva_models``. The path or url to the model can also be
+manually provided via the ``--model`` option.
+The model was trained on the `WSJ1-mix dataset
+<https://github.com/fakufaku/create_wsj1_2345_db>`_ with the same configuration
+as ``./examples/configs/tiss.json``.
 
 
 Training
