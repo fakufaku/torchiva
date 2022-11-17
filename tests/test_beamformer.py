@@ -18,7 +18,7 @@ ref_mic = 0
 
 mix, ref_wet, ref_dry = read_samples()
 
-snr = 20
+snr = 40
 mix_std = torch.std(mix)
 noise_std = mix_std * 10 ** (-snr / 20)  # SNR = 20
 
@@ -51,9 +51,9 @@ def compute_stft_and_covmats(mix, ref1, ref2, n_fft):
 
 
 @pytest.mark.parametrize(
-    "n_fft", [(4096),],
+    "n_fft, tol_db", [(4096, 18),],
 )
-def test_mwf_beamformer(n_fft):
+def test_mwf_beamformer(n_fft, tol_db):
 
     global mix, ref1, ref2, ref
     X, R_tgt, R_noise, stft = compute_stft_and_covmats(mix, ref1, ref2, n_fft)
@@ -68,11 +68,14 @@ def test_mwf_beamformer(n_fft):
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
     print(f"\nMWF     SDR", sdr)
 
+    if tol_db is not None:
+        assert sdr.mean() > tol_db
+
 
 @pytest.mark.parametrize(
-    "n_fft", [(4096),],
+    "n_fft, tol_db", [(4096, 10),],
 )
-def test_mvdr_beamformer(n_fft):
+def test_mvdr_pwr_it_beamformer(n_fft, tol_db):
 
     global mix, ref1, ref2, ref
     X, R_tgt, R_noise, stft = compute_stft_and_covmats(mix, ref1, ref2, n_fft)
@@ -90,11 +93,14 @@ def test_mvdr_beamformer(n_fft):
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
     print(f"MVDRpi  SDR", sdr)
 
+    if tol_db is not None:
+        assert sdr.mean() > tol_db
+
 
 @pytest.mark.parametrize(
-    "n_fft", [(4096),],
+    "n_fft, tol_db", [(4096, 15),],
 )
-def test_mvdr_gev_beamformer(n_fft):
+def test_mvdr_gev_beamformer(n_fft, tol_db):
 
     global mix, ref1, ref2, ref
     X, R_tgt, R_noise, stft = compute_stft_and_covmats(mix, ref1, ref2, n_fft)
@@ -110,11 +116,15 @@ def test_mvdr_gev_beamformer(n_fft):
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
     print(f"MVDRgev SDR", sdr)
 
+    if tol_db is not None:
+        assert sdr.mean() > tol_db
+
+
 
 @pytest.mark.parametrize(
-    "n_fft", [(4096),],
+    "n_fft, tol_db", [(4096, 18),],
 )
-def test_mvdr2_beamformer(n_fft):
+def test_mvdr2_beamformer(n_fft, tol_db):
 
     global mix, ref1, ref2, ref
     X, R_tgt, R_noise, stft = compute_stft_and_covmats(mix, ref1, ref2, n_fft)
@@ -129,11 +139,14 @@ def test_mvdr2_beamformer(n_fft):
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
     print(f"MVDRscm SDR", sdr)
 
+    if tol_db is not None:
+        assert sdr.mean() > tol_db
+
 
 @pytest.mark.parametrize(
-    "n_fft", [(4096),],
+    "n_fft, tol_db", [(4096, 18),],
 )
-def test_gev_beamformer(n_fft):
+def test_gev_beamformer(n_fft, tol_db):
 
     global mix, ref1, ref2, ref
     X, R_tgt, R_noise, stft = compute_stft_and_covmats(mix, ref1, ref2, n_fft)
@@ -147,3 +160,13 @@ def test_gev_beamformer(n_fft):
     m = min(ref.shape[-1], y.shape[-1])
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
     print(f"GEV     SDR", sdr)
+
+    if tol_db is not None:
+        assert sdr.mean() > tol_db
+
+if __name__ == "__main__":
+    test_mwf_beamformer(4096, None)
+    test_mvdr_pwr_it_beamformer(4096, None)
+    test_mvdr_gev_beamformer(4096, None)
+    test_mvdr2_beamformer(4096, None)
+    test_gev_beamformer(4096, None)
