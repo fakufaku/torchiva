@@ -114,7 +114,6 @@ def cost(model, Y, W, J=None, g=None):
         eye = torch.broadcast_to(eye, W.shape[:-2] + eye.shape)
         W = torch.cat((W, torch.cat((J, -eye), dim=-1)), dim=-2)
 
-
     c1 = torch.linalg.norm(Y, dim=-2).sum(dim=(-1, -2))
     _, c2 = torch.linalg.slogdet(W)
 
@@ -126,7 +125,7 @@ def cost(model, Y, W, J=None, g=None):
 class AuxIVA_IP(DRBSSBase):
     """
     Independent vector analysis (IVA) with iterative projection (IP) update [5]_.
-    
+
     We do not support ILRMA-T with IP updates.
 
 
@@ -193,7 +192,11 @@ class AuxIVA_IP(DRBSSBase):
     ):
 
         super().__init__(
-            n_iter, n_src=n_src, model=model, proj_back_mic=proj_back_mic, eps=eps,
+            n_iter,
+            n_src=n_src,
+            model=model,
+            proj_back_mic=proj_back_mic,
+            eps=eps,
         )
 
     def forward(
@@ -275,7 +278,9 @@ class AuxIVA_IP(DRBSSBase):
                     )
 
                 # the new filter, unscaled
-                new_w = solve_loaded_general(WV, evec[..., [k]], load=eps, eps=eps).conj()
+                new_w = solve_loaded_general(
+                    WV, evec[..., [k]], load=eps, eps=eps
+                ).conj()
                 new_w = new_w[..., 0]
 
                 # resolve scale

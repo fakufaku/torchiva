@@ -75,7 +75,6 @@ def compute_interval(n_target, n_mix, n_originals, n_offsets):
         return int(start), int(end)
 
 
-
 class WSJ1SpatialDataset(torch.utils.data.Dataset):
     """
     Dataloader for the WSJ1-spatialized datasets for multichannel
@@ -131,7 +130,7 @@ class WSJ1SpatialDataset(torch.utils.data.Dataset):
         # we truncate the dataset if required
         if max_n_samples is not None:
             self.metadata = self.metadata[:max_n_samples]
-        
+
     def __len__(self):
         return len(self.metadata)
 
@@ -187,10 +186,9 @@ class WSJ1SpatialDataset(torch.utils.data.Dataset):
             assert fs_1 == fs_2
 
             audio_ref_list.append(audio[ref_mic, None, :])
-        
 
         audio_ref = torch.cat(audio_ref_list, dim=0)
-        
+
         audio_mix = audio_mix[p]
 
         if self.max_len_s is None:
@@ -205,12 +203,12 @@ class WSJ1SpatialDataset(torch.utils.data.Dataset):
             # compute an interval that has all sources in it
             s, e = compute_interval(n_target, n_mix, n_originals, n_offsets)
 
-            mean_powers = torch.mean(audio_ref[...,s:e],dim=-1)
+            mean_powers = torch.mean(audio_ref[..., s:e], dim=-1)
             for mean_power in mean_powers:
                 if mean_power == 0:
-                    #audio_mix, audio_ref = self.__getitem__(idx=random.randint(0,self.__len__()-1))
-                    #return audio_mix, audio_ref
-                    return self.__getitem__(idx=random.randint(0,self.__len__()-1))
+                    # audio_mix, audio_ref = self.__getitem__(idx=random.randint(0,self.__len__()-1))
+                    # return audio_mix, audio_ref
+                    return self.__getitem__(idx=random.randint(0, self.__len__() - 1))
 
             return audio_mix[..., s:e], audio_ref[..., s:e]
 
@@ -245,7 +243,6 @@ def collator_6ch(batch_list):
     Collate a bunch of multichannel signals based
     on the size of the shortest sample. The samples are cut at the center
     """
-
 
     max_len = max([s[0].shape[-1] for s in batch_list])
     mix_n_channels = batch_list[0][0].shape[0]

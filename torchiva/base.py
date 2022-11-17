@@ -28,7 +28,6 @@ from .models import LaplaceModel
 from .parameters import eps_models
 
 
-
 class Window(Enum):
     CUSTOM = None
     BARTLETT = "bartlett"
@@ -69,7 +68,6 @@ class SourceModelBase(torch.nn.Module):
         pass
 
 
-
 class DRBSSBase(torch.nn.Module):
     def __init__(
         self,
@@ -90,7 +88,7 @@ class DRBSSBase(torch.nn.Module):
         self._n_src = n_src
         self._proj_back_mic = proj_back_mic
         self._use_dmc = use_dmc
-        
+
         if eps is None:
             self._eps = eps_models["laplace"]
         else:
@@ -104,7 +102,6 @@ class DRBSSBase(torch.nn.Module):
 
         # metrology
         self.checkpoints_list = []
-
 
     def _set_params(self, **kwargs):
         for (key, value) in kwargs.items():
@@ -120,7 +117,7 @@ class DRBSSBase(torch.nn.Module):
     @property
     def n_iter(self):
         return self._n_iter
-    
+
     @property
     def n_taps(self):
         return self._n_taps
@@ -146,7 +143,6 @@ class DRBSSBase(torch.nn.Module):
         return self._eps
 
 
-
 class BFBase(torch.nn.Module):
     def __init__(
         self,
@@ -164,7 +160,6 @@ class BFBase(torch.nn.Module):
         # just so that training works
         self.fake = torch.nn.Parameter(torch.zeros(1))
 
-
     def _set_params(self, **kwargs):
         for (key, value) in kwargs.items():
             if value is None:
@@ -175,7 +170,7 @@ class BFBase(torch.nn.Module):
     @property
     def ref_mic(self):
         return self._ref_mic
-        
+
     @property
     def eps(self):
         return self._eps

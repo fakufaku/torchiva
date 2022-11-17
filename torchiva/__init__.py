@@ -8,8 +8,7 @@ from .five import FIVE
 from .loader import load_separator_model
 from .models import GaussModel, LaplaceModel, NMFModel, source_models
 from .nn import SepAlgo
-from .scaling import (minimum_distortion, minimum_distortion_l2_phase,
-                      projection_back)
+from .scaling import minimum_distortion, minimum_distortion_l2_phase, projection_back
 from .stft import STFT
 from .t_iss import T_ISS
 from .utils import select_most_energetic

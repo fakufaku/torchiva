@@ -2,8 +2,8 @@ import pathlib
 
 from setuptools import find_packages, setup
 
+# obtain long description from the readme
 here = pathlib.Path(__file__).parent.resolve()
-
 long_description = (here / "README.rst").read_text(encoding="utf-8")
 
 setup(

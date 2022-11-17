@@ -8,6 +8,16 @@ import torch as pt
 from ..linalg import mag_sq
 from .parameters import eps_models
 
+try:
+    from math import prod
+except ImportError:
+
+    def prod(*args):
+        out = args[0]
+        for a in args[1:]:
+            out *= a
+        return out
+
 
 class LaplaceModel(pt.nn.Module):
     def __init__(self, eps: Optional[float] = None):
@@ -109,7 +119,7 @@ class NMFModel(pt.nn.Module):
 
         # flatten the batch dimensions
         batch_shape = X.shape[:-2]
-        n_batch = math.prod(batch_shape)
+        n_batch = prod(batch_shape)
         n_freq, n_frames = X.shape[-2:]
         X = X.reshape((-1, n_freq, n_frames))
 

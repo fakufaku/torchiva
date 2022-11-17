@@ -109,7 +109,7 @@ class FIVE(DRBSSBase):
     Parameters
     ----------
     X: torch.Tensor
-        The input mixture in STFT-domain, 
+        The input mixture in STFT-domain,
         ``shape (..., n_chan, n_freq, n_frames)``
 
     Returns
@@ -143,7 +143,6 @@ class FIVE(DRBSSBase):
 
         self.n_power_iter = n_power_iter
 
-
     def forward(
         self,
         X: torch.Tensor,
@@ -152,15 +151,15 @@ class FIVE(DRBSSBase):
         proj_back_mic: Optional[int] = None,
         eps: Optional[float] = None,
         n_power_iter: Optional[int] = None,
-    )-> torch.Tensor:
-        
+    ) -> torch.Tensor:
+
         n_chan, n_freq, n_frames = X.shape[-3:]
 
         n_iter, model, proj_back_mic, eps, n_power_iter = self._set_params(
-            n_iter=n_iter, 
+            n_iter=n_iter,
             model=model,
-            proj_back_mic=proj_back_mic, 
-            eps=eps, 
+            proj_back_mic=proj_back_mic,
+            eps=eps,
             n_power_iter=n_power_iter,
         )
 
@@ -231,7 +230,9 @@ class FIVE(DRBSSBase):
             if n_power_iter is None:
                 inv_eigenvalue, eigenvector = smallest_eigenvector_eigh_cpu(V)
             else:
-                inv_eigenvalue, eigenvector = smallest_eigenvector_power_method(V, n_iter=n_power_iter)
+                inv_eigenvalue, eigenvector = smallest_eigenvector_power_method(
+                    V, n_iter=n_power_iter
+                )
 
             # projection back
             z = torch.einsum("...fc,...fc->...f", Qinv_ref, eigenvector)
