@@ -5,7 +5,7 @@ from .base import DRBSSBase, SourceModelBase, Window, window_types
 from .beamformer import GEVBeamformer, MVDRBeamformer, MWFBeamformer
 from .fftconvolve import fftconvolve
 from .five import FIVE
-from .loader import load_separator_model
+from .loader import load_separator_model, load_separator
 from .models import GaussModel, LaplaceModel, NMFModel, source_models
 from .nn import SepAlgo
 from .scaling import minimum_distortion, minimum_distortion_l2_phase, projection_back
