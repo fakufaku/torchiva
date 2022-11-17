@@ -11,10 +11,7 @@ from examples.samples.read_samples import read_samples
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 
-ref_mic = 0
-
-mix, ref_reverb, ref_anechoic = read_samples(ref_mic=ref_mic)
-
+mix, ref_reverb, ref_anechoic = read_samples(ref_mic=0)
 
 @pytest.mark.parametrize(
     "n_iter, delay, tap, n_fft, tol_db", [(10, 3, 15, 256, 5),],

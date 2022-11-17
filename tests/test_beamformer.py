@@ -9,30 +9,23 @@ from pathlib import Path
 from torchiva.linalg import eigh, solve_loaded, bmm, hermite, multiply
 import torchiva.beamformer
 
+from examples.samples.read_samples import read_samples
+
 torch.manual_seed(0)
 torch.backends.cudnn.deterministic = True
 
 ref_mic = 0
 
-with open(Path("wsj1_6ch") / "dev93" / "mixinfo_noise.json") as f:
-    mixinfo = json.load(f)
+mix, ref_wet, ref_dry = read_samples()
 
-info = mixinfo["00001"]
+snr = 20
+mix_std = torch.std(mix)
+noise_std = mix_std * 10 ** (-snr / 20)  # SNR = 20
 
-mix, fs = torchaudio.load(
-    Path("wsj1_6ch")
-    / (Path("").joinpath(*Path(info["wav_mixed_noise_reverb"]).parts[-4:]))
-)
-
-ref1, fs = torchaudio.load(
-    Path("wsj1_6ch")
-    / (Path("").joinpath(*Path(info["wav_dpath_image_reverberant"][0]).parts[-4:]))
-)
-ref2, fs = torchaudio.load(
-    Path("wsj1_6ch")
-    / (Path("").joinpath(*Path(info["wav_dpath_image_reverberant"][1]).parts[-4:]))
-)
-ref = torch.stack((ref1[ref_mic], ref2[ref_mic]), dim=0)
+mix = mix[0] + mix.new_zeros(mix.shape).normal_() * noise_std
+ref = ref_wet[0, :, ref_mic, :]
+ref1 = ref_wet[0, 0, :, :]
+ref2 = ref_wet[0, 1, :, :]
 
 
 def compute_covariance_matrix(X):
@@ -44,19 +37,8 @@ def mse(ref, y):
     return torch.mean(abs(ref - y) ** 2)
 
 
-@pytest.mark.parametrize(
-    "n_fft",
-    [
-        (4096),
-    ],
-)
-def test_beamformers(n_fft):
-
-    global mix, ref, ref1, ref2, ref_mic
-
-    stft = torchiva.STFT(
-        n_fft=n_fft,
-    )
+def compute_stft_and_covmats(mix, ref1, ref2, n_fft):
+    stft = torchiva.STFT(n_fft=n_fft)
 
     X = stft(mix)
     REF = stft(torch.stack((ref1, ref2), dim=-3))
@@ -64,6 +46,17 @@ def test_beamformers(n_fft):
     # (n_src, n_freq, n_chan, n_chan)
     R_tgt = compute_covariance_matrix(REF)
     R_noise = compute_covariance_matrix(X - REF)
+
+    return X, R_tgt, R_noise, stft
+
+
+@pytest.mark.parametrize(
+    "n_fft", [(4096),],
+)
+def test_mwf_beamformer(n_fft):
+
+    global mix, ref1, ref2, ref
+    X, R_tgt, R_noise, stft = compute_stft_and_covmats(mix, ref1, ref2, n_fft)
 
     # -------------------------
     # MWF part
@@ -74,6 +67,15 @@ def test_beamformers(n_fft):
     m = min(ref.shape[-1], y.shape[-1])
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
     print(f"\nMWF     SDR", sdr)
+
+
+@pytest.mark.parametrize(
+    "n_fft", [(4096),],
+)
+def test_mvdr_beamformer(n_fft):
+
+    global mix, ref1, ref2, ref
+    X, R_tgt, R_noise, stft = compute_stft_and_covmats(mix, ref1, ref2, n_fft)
 
     # -------------------------
     # MVDR part
@@ -88,6 +90,15 @@ def test_beamformers(n_fft):
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
     print(f"MVDRpi  SDR", sdr)
 
+
+@pytest.mark.parametrize(
+    "n_fft", [(4096),],
+)
+def test_mvdr_gev_beamformer(n_fft):
+
+    global mix, ref1, ref2, ref
+    X, R_tgt, R_noise, stft = compute_stft_and_covmats(mix, ref1, ref2, n_fft)
+
     rtf = torchiva.beamformer.compute_mvdr_rtf_eigh(
         R_tgt, R_noise, ref_mic=ref_mic, power_iterations=None
     )
@@ -99,6 +110,15 @@ def test_beamformers(n_fft):
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
     print(f"MVDRgev SDR", sdr)
 
+
+@pytest.mark.parametrize(
+    "n_fft", [(4096),],
+)
+def test_mvdr2_beamformer(n_fft):
+
+    global mix, ref1, ref2, ref
+    X, R_tgt, R_noise, stft = compute_stft_and_covmats(mix, ref1, ref2, n_fft)
+
     # -------------------------
     # MVDR2 part
     mvdr2 = torchiva.beamformer.compute_mvdr_bf2(R_tgt, R_noise)
@@ -108,6 +128,15 @@ def test_beamformers(n_fft):
     m = min(ref.shape[-1], y.shape[-1])
     sdr, sir, sar, perm = fast_bss_eval.bss_eval_sources(ref[:, :m], y[:, :m])
     print(f"MVDRscm SDR", sdr)
+
+
+@pytest.mark.parametrize(
+    "n_fft", [(4096),],
+)
+def test_gev_beamformer(n_fft):
+
+    global mix, ref1, ref2, ref
+    X, R_tgt, R_noise, stft = compute_stft_and_covmats(mix, ref1, ref2, n_fft)
 
     # -------------------------
     # GEV part
