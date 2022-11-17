@@ -4,17 +4,14 @@ from setuptools import find_packages, setup
 
 here = pathlib.Path(__file__).parent.resolve()
 
-try:
-    long_description = (here / "README.md").read_text(encoding="utf-8")
-except Exception:
-    long_description = ""
+long_description = (here / "README.rst").read_text(encoding="utf-8")
 
 setup(
     name="torchiva",
     version="0.1.0",
     description="Package for independent vector analysis in torch",
     long_description=long_description,
-    long_description_content_type="text/markdown",  # text/plain, text/x-rst, text/markdown
+    long_description_content_type="text/x-rst",  # text/plain, text/x-rst, text/markdown
     url="https://github.com/fakufaku/torchiva",
     author="Robin Scheibler",
     # author_email='author@example.com',
@@ -33,15 +30,15 @@ setup(
         # that you indicate you support Python 3. These classifiers are *not*
         # checked by 'pip install'. See instead 'python_requires' below.
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3 :: Only",
     ],
     # keywords='sample, setuptools, development',
     packages=find_packages(exclude=["contrib", "docs", "tests*"]),
-    python_requires=">=3.6, <4",
+    python_requires=">=3.7, <4",
     install_requires=[
         "numpy",
         "scipy",
@@ -52,19 +49,4 @@ setup(
     extras_require={
         "all": [],
     },
-    # package_data={
-    #     'sample': ['package_data.dat'],
-    # },
-    # data_files=[('my_data', ['data/data_file'])],
-    # entry_points={
-    #     'console_scripts': [
-    #         'sample=sample:main',
-    #     ],
-    # },
-    # project_urls={  # Optional
-    #     'Bug Reports': 'https://github.com/pypa/sampleproject/issues',
-    #     'Funding': 'https://donate.pypi.org',
-    #     'Say Thanks!': 'http://saythanks.io/to/example',
-    #     'Source': 'https://github.com/pypa/sampleproject/',
-    # },
 )
