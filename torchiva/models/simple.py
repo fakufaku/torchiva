@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from torchaudio.transforms import MelScale
 
+
 class SimpleModel(nn.Module):
     def __init__(
         self,

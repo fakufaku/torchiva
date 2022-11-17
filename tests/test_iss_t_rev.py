@@ -48,7 +48,8 @@ def test_iss_t_rev_grad():
     n_fft = 256
     device = "cpu"
 
-    mix, ref = read_samples(ref_mic=REF_MIC)
+    # references are reverberant here
+    mix, ref, *_ = read_samples(ref_mic=REF_MIC)
 
     # STFT parameters
     stft = torchiva.STFT(n_fft)
@@ -122,10 +123,10 @@ def test_iss_t_rev_grad():
 @pytest.mark.parametrize(
     "use_dmc, n_fft, optim_epoch, n_iter, n_chan, tol_db",
     [
-        (True, 256, 3, 3, 2, 0.75),
-        (False, 256, 3, 3, 2, 0.75),
-        (True, 512, 3, 3, 2, 0.75),
-        (False, 512, 3, 3, 2, 0.75),
+        (True, 256, 3, 3, 2, 0.5),
+        (False, 256, 3, 3, 2, 0.5),
+        (True, 512, 3, 3, 2, 0.5),
+        (False, 512, 3, 3, 2, 0.5),
         (True, 256, 3, 3, 3, 0.5),
         (False, 256, 3, 3, 3, 0.5),
         (True, 512, 3, 3, 3, 0.5),
@@ -139,7 +140,8 @@ def test_iss_t_rev_opt(
 
     torch.manual_seed(0)
 
-    mix, ref = read_samples(ref_mic=REF_MIC)
+    # references are reverberant here
+    mix, ref, *_ = read_samples(ref_mic=REF_MIC)
 
     mix = mix[:, :n_chan, :]
     ref = ref[:, :n_chan, :]
