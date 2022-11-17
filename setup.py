@@ -11,7 +11,7 @@ except Exception:
 
 setup(
     name="torchiva",
-    version="0.0.1",
+    version="0.1.0",
     description="Package for independent vector analysis in torch",
     long_description=long_description,
     long_description_content_type="text/markdown",  # text/plain, text/x-rst, text/markdown
