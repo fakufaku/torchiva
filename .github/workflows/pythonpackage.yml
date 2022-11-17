@@ -31,7 +31,7 @@ jobs:
         python -m pip freeze | grep torch
         pytest --cov=./torchiva --cov-report=xml
     - name: Upload Coverage to Codecov
-      uses: codecov/codecov-action@v2
+      uses: codecov/codecov-action@v3
     - name: Create and check dist
       run: |
         pip install -U setuptools wheel twine
