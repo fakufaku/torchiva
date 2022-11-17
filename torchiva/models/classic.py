@@ -11,6 +11,7 @@ from .parameters import eps_models
 try:
     from math import prod
 except ImportError:
+
     def prod(*args):
         out = args[0]
         for a in args[1:]:

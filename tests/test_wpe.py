@@ -13,8 +13,12 @@ torch.backends.cudnn.deterministic = True
 
 mix, ref_reverb, ref_anechoic = read_samples(ref_mic=0)
 
+
 @pytest.mark.parametrize(
-    "n_iter, delay, tap, n_fft, tol_db", [(10, 3, 15, 256, 5),],
+    "n_iter, delay, tap, n_fft, tol_db",
+    [
+        (10, 3, 15, 256, 5),
+    ],
 )
 def test_wpe(n_iter, delay, tap, n_fft, tol_db):
 
@@ -22,9 +26,17 @@ def test_wpe(n_iter, delay, tap, n_fft, tol_db):
 
     x = ref_reverb.clone()
 
-    stft = torchiva.STFT(n_fft=n_fft,)
+    stft = torchiva.STFT(
+        n_fft=n_fft,
+    )
 
-    wpe = torchiva.WPE(n_iter=n_iter, n_taps=tap, n_delay=delay, model=None, eps=1e-3,)
+    wpe = torchiva.WPE(
+        n_iter=n_iter,
+        n_taps=tap,
+        n_delay=delay,
+        model=None,
+        eps=1e-3,
+    )
 
     X = stft(x)
     Y = wpe(X)

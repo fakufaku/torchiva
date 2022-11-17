@@ -51,7 +51,10 @@ def compute_stft_and_covmats(mix, ref1, ref2, n_fft):
 
 
 @pytest.mark.parametrize(
-    "n_fft, tol_db", [(4096, 18),],
+    "n_fft, tol_db",
+    [
+        (4096, 18),
+    ],
 )
 def test_mwf_beamformer(n_fft, tol_db):
 
@@ -73,7 +76,10 @@ def test_mwf_beamformer(n_fft, tol_db):
 
 
 @pytest.mark.parametrize(
-    "n_fft, tol_db", [(4096, 10),],
+    "n_fft, tol_db",
+    [
+        (4096, 10),
+    ],
 )
 def test_mvdr_pwr_it_beamformer(n_fft, tol_db):
 
@@ -98,7 +104,10 @@ def test_mvdr_pwr_it_beamformer(n_fft, tol_db):
 
 
 @pytest.mark.parametrize(
-    "n_fft, tol_db", [(4096, 15),],
+    "n_fft, tol_db",
+    [
+        (4096, 15),
+    ],
 )
 def test_mvdr_gev_beamformer(n_fft, tol_db):
 
@@ -120,9 +129,11 @@ def test_mvdr_gev_beamformer(n_fft, tol_db):
         assert sdr.mean() > tol_db
 
 
-
 @pytest.mark.parametrize(
-    "n_fft, tol_db", [(4096, 18),],
+    "n_fft, tol_db",
+    [
+        (4096, 18),
+    ],
 )
 def test_mvdr2_beamformer(n_fft, tol_db):
 
@@ -144,7 +155,10 @@ def test_mvdr2_beamformer(n_fft, tol_db):
 
 
 @pytest.mark.parametrize(
-    "n_fft, tol_db", [(4096, 18),],
+    "n_fft, tol_db",
+    [
+        (4096, 18),
+    ],
 )
 def test_gev_beamformer(n_fft, tol_db):
 
@@ -163,6 +177,7 @@ def test_gev_beamformer(n_fft, tol_db):
 
     if tol_db is not None:
         assert sdr.mean() > tol_db
+
 
 if __name__ == "__main__":
     test_mwf_beamformer(4096, None)
