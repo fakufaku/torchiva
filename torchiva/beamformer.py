@@ -63,7 +63,6 @@ def compute_mwf_bf(
         return w
 
 
-
 def compute_mvdr_rtf_eigh(
     covmat_target: torch.Tensor,
     covmat_noise: torch.Tensor,
@@ -92,7 +91,7 @@ def compute_mvdr_rtf_eigh(
         # use GEVD to obtain eigenvectors
         eigval, eigvec = eigh(covmat_target, covmat_noise)
         v = eigvec[..., :, -1]
-        
+
     else:
         # use power iteration to compute dominant eigenvector
         Phi = solve_loaded(covmat_noise, covmat_target, load=1e-5)
@@ -100,7 +99,7 @@ def compute_mvdr_rtf_eigh(
         for epoch in range(power_iterations - 1):
             v = torch.einsum("...cd,...d->...c", Phi, v)
             v = torch.nn.functional.normalize(v, dim=-1)
-            
+
     steering_vector = torch.einsum("...cd,...d->...c", covmat_noise, v)
 
     # normalize reference component
@@ -131,8 +130,8 @@ def compute_mvdr_bf2(
 ) -> torch.Tensor:
 
     num = torch.linalg.solve(covmat_noise, covmat_target)
-    denom = torch.sum(torch.diagonal(num,dim1=-2,dim2=-1),dim=-1)
-    w = num / denom[...,None,None]
+    denom = torch.sum(torch.diagonal(num, dim1=-2, dim2=-1), dim=-1)
+    w = num / denom[..., None, None]
 
     return w[..., ref_mic]
 
@@ -159,7 +158,6 @@ def compute_gev_bf(
     return gev_bf
 
 
-
 class MVDRBeamformer(BFBase):
     """
     Implementation of MVDR beamformer.
@@ -176,12 +174,12 @@ class MVDRBeamformer(BFBase):
     ref_mic: int, optional
         Reference channel (default: ``0``)
     eps: float, optional
-        A small constant to make divisions 
+        A small constant to make divisions
         and the like numerically stable (default:``1e-5``).
     mvdr_type: str, optional
         The way to obtain the MVDR weight.
-        If set to ``rtf``, relative transfer function is computed 
-        to obtain MVDR. If set to 'scm', MVDR weight is obtained 
+        If set to ``rtf``, relative transfer function is computed
+        to obtain MVDR. If set to 'scm', MVDR weight is obtained
         directly with spatial covariance matrices [11]_ (default: ``rtf``).
     n_power_iter: int, optional
         Use the power iteration method to compute the relative
@@ -197,7 +195,7 @@ class MVDRBeamformer(BFBase):
     Parameters
     ----------
     X: torch.Tensor
-        The input mixture in STFT-domain, 
+        The input mixture in STFT-domain,
         ``shape (..., n_chan, n_freq, n_frames)``
 
     Returns
@@ -207,7 +205,7 @@ class MVDRBeamformer(BFBase):
 
     References
     ----------
-    .. [10] C. Boeddeker et al., 
+    .. [10] C. Boeddeker et al.,
         "Convolutive Transfer Function Invariant SDR training criteria for Multi-Channel Reverberant Speech Separation",
         ICASSP, 2021.
 
@@ -232,11 +230,10 @@ class MVDRBeamformer(BFBase):
         )
 
         self.mvdr_type = mvdr_type
-        self.n_power_iter=n_power_iter
-
+        self.n_power_iter = n_power_iter
 
     def forward(
-        self, 
+        self,
         X: torch.Tensor,
         mask_model: Optional[torch.nn.Module] = None,
         ref_mic: Optional[int] = None,
@@ -246,10 +243,10 @@ class MVDRBeamformer(BFBase):
     ):
 
         mask_model, ref_mic, eps, mvdr_type, n_power_iter = self._set_params(
-            mask_model=mask_model, 
-            ref_mic=ref_mic, 
-            eps=eps, 
-            mvdr_type=mvdr_type, 
+            mask_model=mask_model,
+            ref_mic=ref_mic,
+            eps=eps,
+            mvdr_type=mvdr_type,
             n_power_iter=n_power_iter,
         )
 
@@ -266,20 +263,23 @@ class MVDRBeamformer(BFBase):
                 for mask in masks
             ]
 
-            if mvdr_type == 'rtf':
+            if mvdr_type == "rtf":
                 # compute the relative transfer function
                 rtf = compute_mvdr_rtf_eigh(
-                    R_tgt, R_noise, ref_mic=ref_mic, power_iterations=n_power_iter,
+                    R_tgt,
+                    R_noise,
+                    ref_mic=ref_mic,
+                    power_iterations=n_power_iter,
                 )
 
                 # compute the beamforming weights with rtf
                 # shape (..., n_freq, n_chan)
                 bf = compute_mvdr_bf(R_noise, rtf, eps=eps)
-            
-            elif mvdr_type == 'scm':
+
+            elif mvdr_type == "scm":
                 # compute the beamforming weights directly with spatial covariance matrices (scm)
                 bf = compute_mvdr_bf2(R_tgt, R_noise, ref_mic=ref_mic, eps=eps)
-        
+
         elif n_masks == 3:
             # if two noise masks are estimated as in [C. Boeddeker+, 2021]
             # compute the covariance matrices
@@ -290,7 +290,10 @@ class MVDRBeamformer(BFBase):
 
             # compute the relative transfer function
             rtf = compute_mvdr_rtf_eigh(
-                R_tgt, R_noise_2, ref_mic=ref_mic, power_iterations=n_power_iter,
+                R_tgt,
+                R_noise_2,
+                ref_mic=ref_mic,
+                power_iterations=n_power_iter,
             )
 
             # compute the beamforming weights
@@ -316,7 +319,7 @@ class MWFBeamformer(BFBase):
     ref_mic: int, optional
         Reference channel (default: ``0``)
     eps: float, optional
-        A small constant to make divisions 
+        A small constant to make divisions
         and the like numerically stable (default:``1e-5``).
     time_invariant: bool, optional
         If set to ``True``, this flag indicates that we want to use the
@@ -330,7 +333,7 @@ class MWFBeamformer(BFBase):
     Parameters
     ----------
     X: torch.Tensor
-        The input mixture in STFT-domain, 
+        The input mixture in STFT-domain,
         ``shape (..., n_chan, n_freq, n_frames)``
 
     Returns
@@ -340,8 +343,8 @@ class MWFBeamformer(BFBase):
 
     References
     ----------
-    .. [12] Y. Masuyama et al., 
-        "Consistency-aware multi-channel speech enhancement using deep neural networks", 
+    .. [12] Y. Masuyama et al.,
+        "Consistency-aware multi-channel speech enhancement using deep neural networks",
         ICASSP, 2020.
 
     """
@@ -361,9 +364,8 @@ class MWFBeamformer(BFBase):
 
         self.time_invariant = time_invariant
 
-
     def forward(
-        self, 
+        self,
         X: torch.Tensor,
         mask_model: Optional[torch.nn.Module] = None,
         ref_mic: Optional[int] = None,
@@ -372,9 +374,9 @@ class MWFBeamformer(BFBase):
     ):
 
         mask_model, ref_mic, eps, time_invariant = self._set_params(
-            mask_model=mask_model, 
-            ref_mic=ref_mic, 
-            eps=eps, 
+            mask_model=mask_model,
+            ref_mic=ref_mic,
+            eps=eps,
             time_invariant=time_invariant,
         )
 
@@ -416,7 +418,6 @@ class MWFBeamformer(BFBase):
         return Y
 
 
-
 class GEVBeamformer(BFBase):
 
     """
@@ -431,7 +432,7 @@ class GEVBeamformer(BFBase):
     ref_mic: int, optional
         Reference channel (default: ``0``)
     eps: float, optional
-        A small constant to make divisions 
+        A small constant to make divisions
         and the like numerically stable (default:``1e-5``).
 
     Methods
@@ -441,7 +442,7 @@ class GEVBeamformer(BFBase):
     Parameters
     ----------
     X: torch.Tensor
-        The input mixture in STFT-domain, 
+        The input mixture in STFT-domain,
         ``shape (..., n_chan, n_freq, n_frames)``
 
     Returns
@@ -465,7 +466,7 @@ class GEVBeamformer(BFBase):
         )
 
     def forward(
-        self, 
+        self,
         X: torch.Tensor,
         mask_model: Optional[torch.nn.Module] = None,
         ref_mic: Optional[int] = None,
@@ -473,8 +474,8 @@ class GEVBeamformer(BFBase):
     ):
 
         mask_model, ref_mic, eps = self._set_params(
-            mask_model=mask_model, 
-            ref_mic=ref_mic, 
+            mask_model=mask_model,
+            ref_mic=ref_mic,
             eps=eps,
         )
 
