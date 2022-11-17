@@ -25,8 +25,15 @@ from torch.utils.checkpoint import CheckpointFunction
 from torch.utils.checkpoint import checkpoint as torch_checkpoint
 
 from .base import DRBSSBase
-from .linalg import (divide, hankel_view, hermite, mag_sq, multiply,
-                     solve_loaded, solve_loaded_general)
+from .linalg import (
+    divide,
+    hankel_view,
+    hermite,
+    mag_sq,
+    multiply,
+    solve_loaded,
+    solve_loaded_general,
+)
 
 
 def demix_derev(X, X_bar, W, H):

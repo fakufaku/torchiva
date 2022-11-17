@@ -88,8 +88,6 @@ def spatial_model_update_ip2(
     return X, W, A
 
 
-
-
 class AuxIVA_IP2(DRBSSBase):
     """
     Blind source separation based on independent vector analysis with
@@ -116,7 +114,7 @@ class AuxIVA_IP2(DRBSSBase):
     Parameters
     ----------
     X: torch.Tensor
-        The input mixture in STFT-domain, 
+        The input mixture in STFT-domain,
         ``shape (..., n_chan, n_freq, n_frames)``
 
     Returns
@@ -128,7 +126,7 @@ class AuxIVA_IP2(DRBSSBase):
     ----------
     .. [7] N. Ono,
         "Fast stereo independent vector analysis and its implementation on mobile phone",
-        IWAENC, 2012. 
+        IWAENC, 2012.
     """
 
     def __init__(
@@ -150,7 +148,6 @@ class AuxIVA_IP2(DRBSSBase):
         self.W = None  # target sources
         self.A = None  # mixing matrix
 
-
     def forward(
         self,
         X: torch.Tensor,
@@ -159,7 +156,6 @@ class AuxIVA_IP2(DRBSSBase):
         proj_back_mic: Optional[int] = None,
         eps: Optional[float] = None,
     ) -> torch.Tensor:
-
 
         n_chan, n_freq, n_frames = X.shape[-3:]
 
@@ -207,7 +203,7 @@ class AuxIVA_IP2(DRBSSBase):
             # Here are the exact/fast updates for two channels using the GEVD
             X, W, A = spatial_model_update_ip2(Xo, weights, W=W, A=A, eps=eps)
 
-        if proj_back_mic is not None and n_iter>0:
+        if proj_back_mic is not None and n_iter > 0:
             a = A[..., :, [proj_back_mic], :].moveaxis(-1, -3)
             X = a * X
 

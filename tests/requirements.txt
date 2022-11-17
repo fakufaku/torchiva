@@ -1,0 +1,10 @@
+torch>=1.11.0
+torchaudio
+soundfile
+numpy
+scipy
+PyYAML
+fast-bss-eval
+pytest
+pytest-cov
+-e .

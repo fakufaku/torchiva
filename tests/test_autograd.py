@@ -54,9 +54,11 @@ def f_rep_backward(grad_output, W, x, x0, n_rep):
     return W_grad, grad_x
 
 
-if __name__ == "__main__":
+def test_autograd():
 
-    n_rep = 30
+    torch.manual_seed(0)
+
+    n_rep = 5
     d = 4
     x = torch.arange(1, d + 1, dtype=torch.float32)
 
@@ -80,10 +82,7 @@ if __name__ == "__main__":
 
     gradient_rev = f_rep_backward(grad_output, W, y, x, n_rep)
 
-    print("backprop:")
-    print(gradient_torch[0])
-    print(gradient_torch[1])
-    print()
-    print("reversible:")
-    print(gradient_rev[0])
-    print(gradient_rev[1])
+    err_0 = abs(gradient_torch[0] - gradient_rev[0]).max()
+    err_1 = abs(gradient_torch[1] - gradient_rev[1]).max()
+    assert err_0 < 1e-4
+    assert err_1 < 1e-4
