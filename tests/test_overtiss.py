@@ -74,8 +74,8 @@ def test_tiss(n_iter, delay, tap, n_chan, n_src, n_fft, target_db):
 @pytest.mark.parametrize(
     "n_iter, n_chan, n_src, n_fft, target_db",
     [
-        (50, 2, 2, 2048, 6),
-        (20, 3, 2, 2048, 6),
+        (50, 2, 2, 2048, 4),
+        (20, 3, 2, 2048, 4),
     ],
 )
 def test_iva(n_iter, n_chan, n_src, n_fft, target_db):
