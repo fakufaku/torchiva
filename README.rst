@@ -8,37 +8,32 @@ A package for blind source separation and beamforming in `pytorch <https://pytor
 * supports batched computations
 * can run on GPU via pytorch
 
-Author
-------
-
-* `Robin Scheibler <robin.scheibler@linecorp.com>`_
-* Kohei Saijo
-
-
 Quick Start
 -----------
 
-This guide assumes `anaconda <https://www.anaconda.com/products/individual>`_ is installed::
+The package can be installed via pip::
+
+    pip install torchiva
+
+You can also install from the repo directly.
+Assuming `anaconda <https://www.anaconda.com/products/individual>`_ is installed::
 
     # get code and install environment
-    git clone <torchiva_repo>
+    git clone https://github.com/fakufaku/torchiva.git
     cd torchiva
     conda env create -f environment.yml
     conda activate torchiva
     pip install -e .
 
-    cd ./examples
-    export PYTHONPATH="/path/to/torchiva":$PYTHONPATH"
-
-    # BSS example
+    # BSS example, assumes you have the WSJ1-mix installed from
+    # https://github.com/fakufaku/create_wsj1_2345_db
     # algorithm can be selected from tiss, auxiva_ip, auxiva_ip2, and five
     python ./example.py PATH_TO_DATASET ALGORITHM
-
 
 Separation using Pre-trained Model
 ----------------------------------
 
-We provide pre-trained model at --- hugging face link ---.
+We provide a pre-trained model in `trained_models/tiss`.
 The model is trained with `WSJ1-mix dataset <https://github.com/fakufaku/create_wsj1_2345_db>`_ with the same configuration as `./configs/tiss.json`.
 You can easily try separation with the pre-trained model::
 
@@ -77,6 +72,13 @@ Export the trained model for later use::
 Run the example script using the exported model::
 
     python ./example_dnn.py ../wsj1_6ch ../trained_models/tiss -m 2 -r 100
+
+Authors
+-------
+
+* `Robin Scheibler <robin.scheibler@linecorp.com>`_
+* Kohei Saijo
+
 
 License
 -------
