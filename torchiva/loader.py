@@ -13,10 +13,12 @@ from urllib.request import urlretrieve
 WEIGHTS_FN = "model_weights.ckpt"
 CONFIG_FN = "model_config.yaml"
 
+
 def get_model_filenames(path):
     ckpt_fn = path / f"{WEIGHTS_FN}"
     yaml_fn = path / f"{CONFIG_FN}"
     return ckpt_fn, yaml_fn
+
 
 def get_model_from_url(url):
     path = Path(url)
@@ -34,6 +36,7 @@ def get_model_from_url(url):
             urlretrieve(url, filename=fn)
 
     return ckpt_fn, yaml_fn
+
 
 def load_separator_model(
     ckpt_path: Union[Path, str], config_path: Union[Path, str], **kwargs
@@ -70,6 +73,7 @@ def load_separator_model(
     separator.load_state_dict(state_dict)
 
     return separator
+
 
 def load_separator(path: str, **kwargs):
     """

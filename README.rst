@@ -71,7 +71,6 @@ Authors
 * `Robin Scheibler <robin.scheibler@linecorp.com>`_
 * Kohei Saijo
 
-
 License
 -------
 

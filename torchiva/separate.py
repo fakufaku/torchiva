@@ -33,7 +33,10 @@ from urllib.request import urlretrieve
 
 from .loader import load_separator
 
-DEFAULT_MODEL = "https://raw.githubusercontent.com/fakufaku/torchiva/master/trained_models/tiss"
+DEFAULT_MODEL_URL = (
+    "https://raw.githubusercontent.com/fakufaku/torchiva/master/trained_models/tiss"
+)
+
 
 def separate_one_file(separator, path_in, path_out, n_src, n_chan):
     mix, fs = torchaudio.load(path_in)
@@ -60,24 +63,72 @@ def separate_one_file(separator, path_in, path_out, n_src, n_chan):
 
 if __name__ == "__main__":
 
+    algo_choices = [a.value for a in list(torchiva.nn.SepAlgo)]
+
     torch.manual_seed(0)
 
     parser = argparse.ArgumentParser(description="Separation example")
 
+    # global arguments
     parser.add_argument(
         "input", type=Path, help="Path to input wav file or folder",
     )
     parser.add_argument("output", type=Path, help="Path to output wav file or folder")
     parser.add_argument(
-        "--model", type=str, default=DEFAULT_MODEL, help="Model parameter path",
-    )
-    parser.add_argument(
-        "-n", "--n_iter", default=20, type=int, help="Number of iterations"
-    )
-    parser.add_argument(
         "-m", "--mic", default=2, type=int, help="Maximum number of channels"
     )
     parser.add_argument("-s", "--src", default=2, type=int, help="Number of sources")
+    parser.add_argument("--ref", type=int, default=0, help="Reference channel")
+
+    stft_grp = parser.add_argument_group("STFT Parameters")
+    stft_grp.add_argument(
+        "--nfft", type=int, default=2048, help="Length of the FFT in the STFT"
+    )
+    stft_grp.add_argument("--hop", type=int, help="Shift length of the STFT")
+    stft_grp.add_argument("--win", type=str, help="Window type for the STFT")
+
+    iva_grp = parser.add_argument_group("IVA Parameters")
+    iva_grp.add_argument(
+        "--algo",
+        "-a",
+        type=str,
+        choices=algo_choices,
+        default="tiss",
+        help="IVA spatial update algorithm",
+    )
+    iva_grp.add_argument(
+        "-n", "--n_iter", default=20, type=int, help="Number of iterations"
+    )
+    iva_grp.add_argument(
+        "--taps", "-t", type=int, default=0, help="Number of dereverberation taps"
+    )
+    iva_grp.add_argument(
+        "--delay", "-d", type=int, default=0, help="Delay to insert for dereverberation"
+    )
+    iva_grp.add_argument(
+        "--eps", type=float, help="Small constant to protect division in the algorithm"
+    )
+
+    src_grp = parser.add_argument_group("Source model parameters")
+    src_grp.add_argument(
+        "--model-type",
+        type=str,
+        default="nn",
+        choices=["nn", "laplace", "gauss", "nmf"],
+        help="Source model type",
+    )
+    src_grp.add_argument(
+        "--model-path",
+        type=str,
+        default=DEFAULT_MODEL_URL,
+        help="Neural source model parameter file path or URL",
+    )
+    src_grp.add_argument(
+        "--n-basis", type=int, default=2, help="Number of basis functions for NMF"
+    )
+    src_grp.add_argument(
+        "--model-eps", type=float, help="Small constant to protect division"
+    )
 
     args = parser.parse_args()
 
@@ -85,8 +136,54 @@ if __name__ == "__main__":
 
     assert args.src <= args.mic
 
+    if args.algo == "five" and args.src > 1:
+        args.src = 1
+    elif args.algo == "ip2" and not (args.mic == 2 and args.src <= 2):
+        raise ValueError(
+            "The algorith IP2 can only be used with 2 channels and at most 2 sources"
+        )
+
     # load the pre-trained model
-    separator = load_separator(args.model, n_iter=args.n_iter, n_src=args.src,)
+    if args.model_type == "nn":
+        separator = load_separator(
+            args.model_path,
+            n_iter=args.n_iter,
+            n_src=args.src,
+            proj_back_mic=args.ref,
+            algo=args.algo,
+            use_dmc=False,
+        )
+
+    else:
+        if args.algo in ["mvdr", "mwf", "gev"]:
+            raise ValueError(
+                "Beamforming separation models require a pre-trained DNN model"
+            )
+
+        if args.model_type == "laplace":
+            source_model = torchiva.models.LaplaceModel(eps=args.model_eps)
+        elif args.model_type == "gauss":
+            source_model = torchiva.models.GaussModel(eps=args.model_eps)
+        elif args.model_type == "nmf":
+            source_model = torchiva.models.NMFModel(
+                n_basis=args.n_basis, eps=args.model_eps
+            )
+        else:
+            raise ValueError(f"Unknown model type {args.model_type}")
+
+        separator = torchiva.nn.BSSSeparator(
+            n_fft=args.nfft,
+            hop_length=args.hop,
+            window=args.win,
+            n_taps=args.taps,
+            n_delay=args.delay,
+            n_src=args.src,
+            algo=args.algo,
+            source_model=source_model,
+            proj_back_mic=args.ref,
+            use_dmc=False,
+            eps=args.eps,
+        )
 
     if args.input.is_dir():
         args.output.mkdir(exist_ok=True, parents=True)
