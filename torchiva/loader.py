@@ -75,7 +75,7 @@ def load_separator_model(
     return separator
 
 
-def load_separator(path: str, **kwargs):
+def load_separator(path: str, **kwargs) -> BSSSeparator:
     """
     Loads pre-trained weights into a ``BSSSeparator`` object.
 
@@ -102,7 +102,8 @@ def load_separator(path: str, **kwargs):
             ckpt_path, config_path = get_model_filenames(path_obj)
         else:
             raise ValueError(f"The path {path} is not a folder")
+
     else:
-        raise ValueError("The argument must be a local path or URL")
+        raise ValueError("The argument must be an existing local path or URL")
 
     return load_separator_model(ckpt_path, config_path, **kwargs)
