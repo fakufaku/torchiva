@@ -38,8 +38,10 @@ DEFAULT_MODEL_URL = (
 )
 
 
-def separate_one_file(separator, path_in, path_out, n_src, n_chan):
+def separate_one_file(separator, path_in, path_out, n_src, n_chan, device):
     mix, fs = torchaudio.load(path_in)
+
+    mix = mix.to(device)
 
     # limit numer of channel if necessary
     if mix.shape[-2] > n_chan:
@@ -58,7 +60,16 @@ def separate_one_file(separator, path_in, path_out, n_src, n_chan):
         pad_len = mix.shape[-1] - y.shape[-1]
         y = torch.nn.functional.pad(y, (0, pad_len))
 
+    y = y.cpu()
+
     torchaudio.save(path_out, y, fs)
+
+
+def device_type(device):
+    if device.isnumeric():
+        return f"cuda:{device}"
+    else:
+        return device
 
 
 if __name__ == "__main__":
@@ -75,10 +86,15 @@ if __name__ == "__main__":
     )
     parser.add_argument("output", type=Path, help="Path to output wav file or folder")
     parser.add_argument(
+        "-q", "--quiet", action="store_true", help="Show processed file names"
+    )
+    parser.add_argument(
+        "--device", default="cpu", type=device_type, help="Device to use (default: cpu)"
+    )
+    parser.add_argument(
         "-m", "--mic", default=2, type=int, help="Maximum number of channels"
     )
     parser.add_argument("-s", "--src", default=2, type=int, help="Number of sources")
-    parser.add_argument("--ref", type=int, default=0, help="Reference channel")
 
     stft_grp = parser.add_argument_group("STFT Parameters")
     stft_grp.add_argument(
@@ -105,6 +121,7 @@ if __name__ == "__main__":
     iva_grp.add_argument(
         "--delay", "-d", type=int, default=0, help="Delay to insert for dereverberation"
     )
+    iva_grp.add_argument("--ref", type=int, default=0, help="Reference channel")
     iva_grp.add_argument(
         "--eps", type=float, help="Small constant to protect division in the algorithm"
     )
@@ -185,6 +202,9 @@ if __name__ == "__main__":
             eps=args.eps,
         )
 
+    if args.device is not None:
+        separator = separator.to(args.device)
+
     if args.input.is_dir():
         args.output.mkdir(exist_ok=True, parents=True)
         if not args.output.is_dir():
@@ -194,8 +214,11 @@ if __name__ == "__main__":
 
         for path_in in args.input.rglob("*.wav"):
             path_out = args.output / path_in.name
-            separate_one_file(separator, path_in, path_out, args.src, args.mic)
-            print(f"{path_in} -> {path_out}")
+            separate_one_file(
+                separator, path_in, path_out, args.src, args.mic, args.device
+            )
+            if not args.quiet:
+                print(f"{path_in} -> {path_out}")
 
     else:
 
@@ -210,5 +233,8 @@ if __name__ == "__main__":
         if args.output == args.input:
             raise ValueError("Input and output should be different files")
 
-        separate_one_file(separator, args.input, path_out, args.src, args.mic)
-        print(f"{args.input} -> {path_out}")
+        separate_one_file(
+            separator, args.input, path_out, args.src, args.mic, args.device
+        )
+        if not args.quiet:
+            print(f"{args.input} -> {path_out}")
