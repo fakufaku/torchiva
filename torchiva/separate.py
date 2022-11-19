@@ -82,7 +82,9 @@ if __name__ == "__main__":
 
     # global arguments
     parser.add_argument(
-        "input", type=Path, help="Path to input wav file or folder",
+        "input",
+        type=Path,
+        help="Path to input wav file or folder",
     )
     parser.add_argument("output", type=Path, help="Path to output wav file or folder")
     parser.add_argument(
