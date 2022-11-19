@@ -82,9 +82,7 @@ if __name__ == "__main__":
 
     # global arguments
     parser.add_argument(
-        "input",
-        type=Path,
-        help="Path to input wav file or folder",
+        "input", type=Path, help="Path to input wav file or folder",
     )
     parser.add_argument("output", type=Path, help="Path to output wav file or folder")
     parser.add_argument(
@@ -111,7 +109,6 @@ if __name__ == "__main__":
         "-a",
         type=str,
         choices=algo_choices,
-        default="tiss",
         help="IVA spatial update algorithm",
     )
     iva_grp.add_argument(
@@ -164,17 +161,22 @@ if __name__ == "__main__":
 
     # load the pre-trained model
     if args.model_type == "nn":
-        separator = load_separator(
-            args.model_path,
+        kwargs = dict(
             n_iter=args.n_iter,
             n_src=args.src,
             proj_back_mic=args.ref,
-            algo=args.algo,
             use_dmc=False,
         )
 
+        if args.algo is not None:
+            kwargs["algo"] = args.algo
+
+        separator = load_separator(args.model_path, **kwargs)
+
     else:
-        if args.algo in ["mvdr", "mwf", "gev"]:
+        if args.algo is None:
+            args.algo = "tiss"
+        elif args.algo in ["mvdr", "mwf", "gev"]:
             raise ValueError(
                 "Beamforming separation models require a pre-trained DNN model"
             )
