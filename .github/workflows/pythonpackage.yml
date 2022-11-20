@@ -34,7 +34,6 @@ jobs:
         pip install pytest
         python -m pip freeze | grep torch
         pytest --cov=./torchiva --cov-report=xml
-        ./tests/test_separate_command.sh
     - name: Upload Coverage to Codecov
       uses: codecov/codecov-action@v3
     - name: Create and check dist
