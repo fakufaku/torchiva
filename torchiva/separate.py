@@ -48,7 +48,7 @@ def separate_one_file(separator, path_in, path_out, n_src, n_chan, device):
         mix = mix[..., :n_chan, :]
 
     with torch.no_grad():
-        y = separator(mix[..., : args.src, :])
+        y = separator(mix[..., : n_src, :])
 
         # if args.n_src > n_ref, select most energetic n_ref sources
         if y.shape[-2] > n_src:
@@ -71,13 +71,8 @@ def device_type(device):
     else:
         return device
 
-
-if __name__ == "__main__":
-
+def get_parser():
     algo_choices = [a.value for a in list(torchiva.nn.SepAlgo)]
-
-    torch.manual_seed(0)
-
     parser = argparse.ArgumentParser(description="Separation example")
 
     # global arguments
@@ -146,7 +141,9 @@ if __name__ == "__main__":
         "--model-eps", type=float, help="Small constant to protect division"
     )
 
-    args = parser.parse_args()
+    return parser
+
+def main(args):
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -242,3 +239,9 @@ if __name__ == "__main__":
         )
         if not args.quiet:
             print(f"{args.input} -> {path_out}")
+
+if __name__ == "__main__":
+    torch.manual_seed(0)
+    parser = get_parser()
+    args = parser.parse_args()
+    main(args)

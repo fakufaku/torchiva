@@ -57,6 +57,9 @@ def load_separator_model(
     -------
     A ``BSSSeparator`` object loaded with the pre-trained weights
     """
+    ckpt_path = Path(ckpt_path)
+    config_path = Path(config_path)
+
     if not ckpt_path.exists():
         raise ValueError(f"The model weights file {ckpt_path} does not exist")
 
