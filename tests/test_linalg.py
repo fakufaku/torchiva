@@ -42,5 +42,4 @@ def test_general_eigh_2x2(dtype):
 
     err = abs(A @ V - (B @ V) * L[None, :]).max()
 
-    print(f"{err=}")
     assert err < tol
