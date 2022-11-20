@@ -19,13 +19,6 @@ def test_eigh_2x2(dtype):
     err_e = abs(e1 - e2).max()
     err_v = abs(abs(v1.T @ v2) - torch.eye(2)).max()
 
-    print(f"{A=}")
-    print(f"{e1=}")
-    print(f"{e2=}")
-    print(f"{v1=}")
-    print(f"{v2=}")
-    print(f"{err_e=}")
-    print(f"{err_v=}")
     assert err_e < tol
     assert err_v < tol
 
