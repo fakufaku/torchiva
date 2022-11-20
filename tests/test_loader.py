@@ -16,7 +16,8 @@ def test_load_from_path_legacy():
 
 # call with URL twice because it is not downloaded the second time
 @pytest.mark.parametrize(
-    "path", ["./trained_models/tiss", MODEL_URL, MODEL_URL],
+    "path",
+    ["./trained_models/tiss", MODEL_URL, MODEL_URL],
 )
 def test_loader(path):
     sep = torchiva.load_separator(path)

@@ -17,6 +17,7 @@ def test_is_complex_type(dtype, ret):
     assert is_complex_type(dtype) == ret
     assert is_complex_type(x) == ret
 
+
 @pytest.mark.parametrize(
     "dtype, ret_dtype",
     [
@@ -30,6 +31,7 @@ def test_dtype_cpx2f(dtype, ret_dtype):
     x = torch.zeros(1, dtype=dtype).normal_()
     assert dtype_cpx2f(dtype) == ret_dtype
     assert dtype_cpx2f(x) == ret_dtype
+
 
 @pytest.mark.parametrize(
     "dtype, ret_dtype",

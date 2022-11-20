@@ -48,7 +48,7 @@ def separate_one_file(separator, path_in, path_out, n_src, n_chan, device):
         mix = mix[..., :n_chan, :]
 
     with torch.no_grad():
-        y = separator(mix[..., : n_src, :])
+        y = separator(mix[..., :n_src, :])
 
         # if args.n_src > n_ref, select most energetic n_ref sources
         if y.shape[-2] > n_src:
@@ -71,13 +71,16 @@ def device_type(device):
     else:
         return device
 
+
 def get_parser():
     algo_choices = [a.value for a in list(torchiva.nn.SepAlgo)]
     parser = argparse.ArgumentParser(description="Separation example")
 
     # global arguments
     parser.add_argument(
-        "input", type=Path, help="Path to input wav file or folder",
+        "input",
+        type=Path,
+        help="Path to input wav file or folder",
     )
     parser.add_argument("output", type=Path, help="Path to output wav file or folder")
     parser.add_argument(
@@ -142,6 +145,7 @@ def get_parser():
     )
 
     return parser
+
 
 def main(args):
 
@@ -239,6 +243,7 @@ def main(args):
         )
         if not args.quiet:
             print(f"{args.input} -> {path_out}")
+
 
 if __name__ == "__main__":
     torch.manual_seed(0)

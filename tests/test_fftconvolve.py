@@ -8,6 +8,7 @@ t = torch.zeros((101)).normal_()
 y = torch.zeros((21)).normal_()
 z = torch.zeros((20)).normal_()
 
+
 @pytest.mark.parametrize(
     "x1, x2, mode, dim",
     [

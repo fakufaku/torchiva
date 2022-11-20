@@ -4,8 +4,10 @@ import torchiva
 
 tol = 1e-5
 
+
 @pytest.mark.parametrize(
-    "dtype", [torch.complex64, torch.complex128, torch.float32, torch.float64],
+    "dtype",
+    [torch.complex64, torch.complex128, torch.float32, torch.float64],
 )
 def test_eigh_2x2(dtype):
 
@@ -22,8 +24,10 @@ def test_eigh_2x2(dtype):
     assert err_e < tol
     assert err_v < tol
 
+
 @pytest.mark.parametrize(
-    "dtype", [torch.complex64, torch.complex128, torch.float32, torch.float64],
+    "dtype",
+    [torch.complex64, torch.complex128, torch.float32, torch.float64],
 )
 def test_general_eigh_2x2(dtype):
 
