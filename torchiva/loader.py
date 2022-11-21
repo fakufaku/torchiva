@@ -19,8 +19,10 @@ def get_model_filenames(path):
     yaml_fn = path / f"{CONFIG_FN}"
     return ckpt_fn, yaml_fn
 
+
 def urljoin(part1, part2):
     return "/".join([part1.strip("/"), part2])
+
 
 def get_model_from_url(url):
     path = Path(url)

@@ -22,6 +22,7 @@ def test_load_from_path_legacy():
 def test_loader(path):
     sep = torchiva.load_separator(path)
 
+
 if __name__ == "__main__":
     test_load_from_path_legacy()
     test_loader("./trained_models/tiss")
