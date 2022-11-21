@@ -62,29 +62,6 @@ def mag(x: pt.Tensor):
     return pt.sqrt(mag_sq(x))
 
 
-def complex_2_real(A: pt.Tensor, vector=False) -> pt.Tensor:
-    """
-    Create the real matrix equivalent to the complex input A
-    """
-    shape = A.shape[:-2]
-    n_rows, n_cols = A.shape[-2:]
-
-    if vector:
-        shape_A_ri = shape + (2 * n_rows, n_cols)
-    else:
-        shape_A_ri = shape + (2 * n_rows, 2 * n_cols)
-
-    A_ri = A.new_zeros(shape_A_ri, dtype=dtype_cpx2f(A))
-    A_ri[..., :n_rows, :n_cols] = A.real
-    A_ri[..., n_rows:, :n_cols] = A.imag
-
-    if not vector:
-        A_ri[..., :n_rows, n_cols:] = -A.imag
-        A_ri[..., n_rows:, n_cols:] = A.real
-
-    return A_ri
-
-
 def bmm(input: pt.Tensor, mat2: pt.Tensor) -> pt.Tensor:
     m1 = pt.view_as_real(input)
     m2 = pt.view_as_real(mat2)
@@ -163,37 +140,6 @@ def inv_2x2(W: pt.Tensor, eps=1e-6):
     return W_inv
 
 
-def solve(
-    b: pt.Tensor, A: pt.Tensor, out: Optional[pt.Tensor] = None
-) -> Tuple[pt.Tensor, pt.Tensor]:
-
-    if not is_complex_type(b) and not is_complex_type(A):
-        return pt.solve(b, A)
-
-    shape = A.shape[:-2]
-    n_dim = A.shape[-2]
-
-    # transform from complex to equivalent real format
-    A_ri = complex_2_real(A)
-    b_ri = complex_2_real(b, vector=True)
-
-    x_ri, _ = pt.solve(b_ri, A_ri)
-
-    shape_out = shape + (n_dim, b.shape[-1])
-    if out is None:
-        out = x_ri.new_zeros(shape_out, dtype=dtype_f2cpx(x_ri))
-    else:
-        assert out.shape == shape_out
-        assert is_complex_type(out)
-
-    out_r = pt.view_as_real(out)
-    out_r[:, :, :, 0] = x_ri[:, :n_dim, :]
-    out_r[:, :, :, 1] = x_ri[:, n_dim:, :]
-
-    # we return a None to match the interface of pt.solve
-    return out, None
-
-
 def diagonal_loading(A: pt.Tensor, d: pt.Tensor):
     """
     Load the diagonal of A with the vector d
@@ -230,7 +176,10 @@ def eigh_2x2(
         # coefficient of secular equation: x - b * x + c
         a11b22 = a11.real * b22.real
         a22b11 = a22.real * b11.real
-        re_a12b12c = a12.real * b12.real + a12.imag * b12.imag
+        try:
+            re_a12b12c = a12.real * b12.real + a12.imag * b12.imag
+        except RuntimeError:
+            re_a12b12c = a12.real * b12.real
         b = a11b22 + a22b11 - 2.0 * re_a12b12c
 
         det_A = a11.real * a22.real - mag_sq(a12)
@@ -271,11 +220,11 @@ def eigh_2x2(
 
         # secular equation: a * lambda^2 - b * lambda + c
         # where lambda is the eigenvalue
-        b = A[..., 0, 0].real + A[..., 1, 1].real
-        c = A[..., 0, 0].real * A[..., 1, 1].real - mag_sq(A[..., 0, 1])
+        trace = A[..., 0, 0].real + A[..., 1, 1].real  # trace
+        det = A[..., 0, 0].real * A[..., 1, 1].real - mag_sq(A[..., 0, 1])  # det
 
         # discrimant of secular equation
-        delta = pt.square(b) - 4 * c
+        delta = pt.square(trace) - 4 * det
 
         # we clamp to zero to avoid numerical inaccuracies
         # we know the minimum is zero because A and B should
@@ -284,17 +233,17 @@ def eigh_2x2(
 
         # fill the eigenvectors in ascending order
         eigenvalues = delta.new_zeros(A.shape[:-1])
-        eigenvalues[..., 0] = 0.5 * (delta - pt.sqrt(delta))  # small eigenvalue
-        eigenvalues[..., 1] = 0.5 * (delta + pt.sqrt(delta))  # large eigenvalue
+        eigenvalues[..., 0] = 0.5 * (trace - pt.sqrt(delta))  # small eigenvalue
+        eigenvalues[..., 1] = 0.5 * (trace + pt.sqrt(delta))  # large eigenvalue
 
         # now fill the eigenvectors
         eigenvectors = A.new_zeros(A.shape)
         # vector corresponding to small eigenvalue
-        eigenvectors[..., 0, 0] = A[..., 0, 1]
-        eigenvectors[..., 1, 0] = eigenvalues[..., 0] - A[..., 1, 1]
+        eigenvectors[..., 1, 0] = A[..., 0, 1]
+        eigenvectors[..., 0, 0] = eigenvalues[..., 0] - A[..., 1, 1]
         # vector corresponding to large eigenvalue
-        eigenvectors[..., 0, 1] = eigenvalues[..., 1] - A[..., 0, 0]
-        eigenvectors[..., 1, 1] = pt.conj(eigenvectors[..., 0, 0])
+        eigenvectors[..., 1, 1] = eigenvalues[..., 1] - A[..., 0, 0]
+        eigenvectors[..., 0, 1] = A[..., 1, 0]
 
     norm = pt.sqrt(pt.sum(mag_sq(eigenvectors), dim=-2, keepdim=True))
     eigenvectors = divide(eigenvectors, norm, eps=eps)

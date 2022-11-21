@@ -54,7 +54,7 @@ def fftconvolve(x1, x2, mode="full", dim=-1):
         endind = n
 
     elif mode == "same":
-        retlen = max(n1, n2)
+        retlen = n1
         startind = (n - retlen) // 2
         endind = startind + retlen
 

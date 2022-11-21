@@ -21,7 +21,7 @@
 from typing import List, Optional
 import torch
 
-from .linalg import divide, eigh, hermite, inv_2x2, mag_sq
+from .linalg import divide, eigh, hermite, inv_2x2, mag_sq, eigh_2x2
 from .models import LaplaceModel
 from .base import DRBSSBase
 
@@ -63,7 +63,8 @@ def spatial_model_update_ip2(
         Vloc = 0.5 * (Vloc + hermite(Vloc))
         V.append(Vloc)
 
-    eigval, eigvec = eigh(V[1], V[0], eps=eps)
+    # eigval, eigvec = eigh(V[1], V[0], eps=eps)
+    eigval, eigvec = eigh_2x2(V[1], V[0], eps=eps)
 
     # reverse order of eigenvectors
     eigvec = torch.flip(eigvec, dims=(-1,))
