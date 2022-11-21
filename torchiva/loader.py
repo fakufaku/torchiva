@@ -7,7 +7,7 @@ import yaml
 
 from .nn import BSSSeparator
 
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from urllib.request import urlretrieve
 
 WEIGHTS_FN = "model_weights.ckpt"
@@ -23,8 +23,8 @@ def get_model_filenames(path):
 def get_model_from_url(url):
     path = Path(url)
     model_name = path.name
-    yaml_url = os.path.join(url, CONFIG_FN)
-    ckpt_url = os.path.join(url, WEIGHTS_FN)
+    yaml_url = urljoin(url, CONFIG_FN)
+    ckpt_url = urljoin(url, WEIGHTS_FN)
 
     model_path = Path.home() / f".torchiva_models/{model_name}"
     ckpt_fn, yaml_fn = get_model_filenames(model_path)
