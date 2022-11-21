@@ -67,7 +67,7 @@ def measure_eigh_runtime(batch, dtype):
     runtime_torchiva = (time.perf_counter() - ts) / rep
 
 
-    print(f"{batch=} {dtype=} {runtime_torch=:.6f} {runtime_torchiva=:.6f}")
+    print(f"batch={batch} dtype={dtype} torch={runtime_torch:.6f} torchiva={runtime_torchiva:.6f}")
 
 if __name__ == "__main__":
     measure_eigh_runtime(1, torch.complex64)
