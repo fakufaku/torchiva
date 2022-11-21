@@ -1,3 +1,4 @@
+import time
 import torch
 import pytest
 import torchiva
@@ -43,3 +44,37 @@ def test_general_eigh_2x2(dtype):
     err = abs(A @ V - (B @ V) * L[None, :]).max()
 
     assert err < tol
+
+def measure_eigh_runtime(batch, dtype):
+    rep = 20
+
+    # random PSD matrix
+    A = torch.zeros((batch, 2, 10), dtype=dtype).uniform_()
+    A = A @ torchiva.linalg.hermite(A)
+
+    A = A.to(0)
+
+    e1, v1 = torch.linalg.eigh(A)
+    ts = time.perf_counter()
+    for i in range(rep):
+        e1, v1 = torch.linalg.eigh(A)
+    runtime_torch = (time.perf_counter() - ts) / rep
+
+    e2, v2 = torchiva.linalg.eigh_2x2(A)
+    ts = time.perf_counter()
+    for i in range(rep):
+        e2, v2 = torchiva.linalg.eigh_2x2(A)
+    runtime_torchiva = (time.perf_counter() - ts) / rep
+
+
+    print(f"{batch=} {dtype=} {runtime_torch=:.6f} {runtime_torchiva=:.6f}")
+
+if __name__ == "__main__":
+    measure_eigh_runtime(1, torch.complex64)
+    measure_eigh_runtime(10, torch.complex64)
+    measure_eigh_runtime(100, torch.complex64)
+    measure_eigh_runtime(1000, torch.complex64)
+    measure_eigh_runtime(1, torch.complex128)
+    measure_eigh_runtime(10, torch.complex128)
+    measure_eigh_runtime(100, torch.complex128)
+    measure_eigh_runtime(1000, torch.complex128)

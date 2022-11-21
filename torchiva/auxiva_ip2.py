@@ -63,7 +63,9 @@ def spatial_model_update_ip2(
         Vloc = 0.5 * (Vloc + hermite(Vloc))
         V.append(Vloc)
 
-    # eigval, eigvec = eigh(V[1], V[0], eps=eps)
+    # we use the custom 2x2 eigenvalue decomposition solver. It is probably
+    # not always faster than torch, but should be more stable for gradient
+    # computation
     eigval, eigvec = eigh_2x2(V[1], V[0], eps=eps)
 
     # reverse order of eigenvectors

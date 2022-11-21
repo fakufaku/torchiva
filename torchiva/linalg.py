@@ -162,6 +162,8 @@ def eigh_2x2(
         assert B.shape[-1] == 2
         assert B.shape[-1] == B.shape[-2]
 
+        # Do the Generalized EVD
+
         # broadcast
         A, B = pt.broadcast_tensors(A, B)
 
@@ -176,9 +178,9 @@ def eigh_2x2(
         # coefficient of secular equation: x - b * x + c
         a11b22 = a11.real * b22.real
         a22b11 = a22.real * b11.real
-        try:
+        if is_complex_type(a12) and is_complex_type(b12):
             re_a12b12c = a12.real * b12.real + a12.imag * b12.imag
-        except RuntimeError:
+        else:
             re_a12b12c = a12.real * b12.real
         b = a11b22 + a22b11 - 2.0 * re_a12b12c
 
@@ -271,25 +273,15 @@ def eigh(
     A: pt.Tensor,
     B: Optional[pt.Tensor] = None,
     eps: Optional[float] = 1e-15,
-    use_eigh_cpu: Optional[bool] = True,
+    use_eigh_cpu: Optional[bool] = False,
 ) -> Tuple[pt.Tensor, pt.Tensor]:
     """
     Eigenvalue decomposition of a complex Hermitian symmetric matrix
     """
 
-    """
     # for 2x2, use specialized routine
     if A.shape[-1] == 2:
         return eigh_2x2(A, B=B, eps=eps)
-    """
-
-    """
-    # here we add a small diagonal loading to make sure that all eigenvalues
-    # are distinct, otherwise, the algorithm may fail sometimes
-    D = pt.diag(pt.arange(A.shape[-1], device=A.device) * eps)
-    D = D.reshape(pt.Size([1] * (len(A.shape) - 2)) + A.shape[-2:])
-    A = A + D
-    """
 
     if B is not None:
         assert A.shape == B.shape, "A and B should have the same size"
