@@ -22,7 +22,7 @@ We provide a pre-trained model in `trained_models/tiss`.
 You can easily try separation with the pre-trained model::
 
     # Separation
-    python -m torchiva.separation INPUT OUTPUT
+    python -m torchiva.separate INPUT OUTPUT
 
 where ``INPUT`` is either a multichannel wav file or a folder containing
 multichannel wav files.  If a folder, then all the files inside are separted.
